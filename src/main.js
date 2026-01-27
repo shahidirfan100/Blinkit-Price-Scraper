@@ -343,14 +343,6 @@ async function main() {
             requestHandlerTimeoutSecs: 300, // Increased for safety
             navigationTimeoutSecs: 120, // Increased to handle slow proxies
             useSessionPool: true,
-
-            // Custom navigation to be more resilient
-            gotoFunction: async ({ page, request }) => {
-                return page.goto(request.url, {
-                    timeout: 120000,
-                    waitUntil: 'domcontentloaded' // Faster than 'load', sufficient for SPA extraction
-                });
-            },
             sessionPoolOptions: {
                 maxPoolSize: 50,
                 sessionOptions: {

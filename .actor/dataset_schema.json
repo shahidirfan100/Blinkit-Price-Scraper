@@ -1,0 +1,81 @@
+{
+  "actorSpecification": 1,
+  "fields": {},
+  "views": {
+    "overview": {
+      "title": "Overview",
+      "transformation": {
+        "fields": [
+          "product_name",
+          "price",
+          "original_price",
+          "discount_percentage",
+          "product_image",
+          "availability",
+          "delivery_time",
+          "search_query",
+          "url",
+          "scrapedAt"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "product_name": {
+            "label": "Product Name",
+            "format": "text"
+          },
+          "price": {
+            "label": "Current Price (₹)",
+            "format": "number"
+          },
+          "original_price": {
+            "label": "Original Price (₹)",
+            "format": "number"
+          },
+          "discount_percentage": {
+            "label": "Discount %",
+            "format": "text"
+          },
+          "product_image": {
+            "label": "Product Image",
+            "format": "image"
+          },
+          "availability": {
+            "label": "Stock Status",
+            "format": "text"
+          },
+          "delivery_time": {
+            "label": "Delivery Time",
+            "format": "text"
+          },
+          "search_query": {
+            "label": "Search Query",
+            "format": "text"
+          },
+          "url": {
+            "label": "Search URL",
+            "format": "link"
+          },
+          "scrapedAt": {
+            "label": "Scraped At",
+            "format": "date"
+          }
+        }
+      }
+    }
+  }
+}
+          "productId": {
+            "label": "Product ID",
+            "format": "text"
+          },
+          "scrapedAt": {
+            "label": "Scraped At",
+            "format": "date"
+          }
+        }
+      }
+    }
+  }
+}

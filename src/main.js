@@ -13,6 +13,7 @@ const PRODUCT_KEYS = {
     availability: ['in_stock', 'available', 'availability', 'stock'],
     delivery: ['eta', 'delivery_time', 'deliveryTime'],
     url: ['product_url', 'productUrl', 'url', 'slug'],
+    id: ['product_id', 'productId', 'id', 'sku', 'sku_id', 'item_id', 'variant_id'],
 };
 
 const pickFirst = (obj, keys) => {
@@ -53,6 +54,14 @@ const extractImage = (obj) => {
         }
     }
     return null;
+};
+
+const extractProductId = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.id);
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const str = String(value).trim();
+    return str ? str : null;
 };
 
 const extractPrice = (obj) => {
@@ -111,6 +120,7 @@ const scoreProduct = (obj) => {
     if (extractOriginalPrice(obj) !== null) score += 1;
     if (extractImage(obj)) score += 1;
     if (extractAvailability(obj)) score += 1;
+    if (extractProductId(obj)) score += 1;
     return score;
 };
 
@@ -163,7 +173,28 @@ const normalizeProduct = (raw) => {
     const image = extractImage(base) ?? extractImage(raw);
     const availability = extractAvailability(base) ?? extractAvailability(raw);
     const delivery = extractDelivery(base) ?? extractDelivery(raw);
-    const productUrl = pickFirst(base, PRODUCT_KEYS.url) || pickFirst(raw, PRODUCT_KEYS.url) || null;
+    const productUrlRaw = pickFirst(base, PRODUCT_KEYS.url) || pickFirst(raw, PRODUCT_KEYS.url) || null;
+    const productId = extractProductId(base) ?? extractProductId(raw);
+
+    let productUrl = null;
+    if (typeof productUrlRaw === 'string' && productUrlRaw.trim()) {
+        const trimmed = productUrlRaw.trim();
+        if (trimmed.startsWith('http')) {
+            productUrl = trimmed;
+        } else {
+            const path = trimmed.replace(/^\//, '');
+            if (path.startsWith('prn/') || path.includes('/prn/')) {
+                productUrl = `https://blinkit.com/${path}`;
+            } else if (productId) {
+                productUrl = `https://blinkit.com/prn/${path}/prid/${productId}`;
+            } else {
+                productUrl = `https://blinkit.com/${path}`;
+            }
+        }
+    } else if (productId && productName) {
+        const slug = productName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        productUrl = `https://blinkit.com/prn/${slug}/prid/${productId}`;
+    }
 
     return {
         product_name: productName,
@@ -180,6 +211,52 @@ const normalizeProduct = (raw) => {
 const extractProductsFromPayloads = (payloads = []) => {
     const rawProducts = [];
     const seenObjects = new Set();
+    const nonProductPatterns = [
+        'ads_vertical_banner',
+        'ad_banner',
+        'Vegetables & Fruits',
+        'Dairy & Breakfast',
+        'Munchies',
+        'Cold Drinks',
+        'Instant & Frozen',
+        'Tea, Coffee',
+        'Bakery & Biscuits',
+        'Sweet Tooth',
+        'Atta, Rice & Dal',
+        'Dry Fruits, Masala',
+        'Sauces & Spreads',
+        'Chicken, Meat & Fish',
+        'Paan Corner',
+        'Organic & Premium',
+        'Baby Care',
+        'Pharma & Wellness',
+        'Personal Care',
+        'Home & Office',
+        'Pet Care',
+        'Cleaning Essentials',
+        'Home Furnishing & Decor',
+        'Beauty & Cosmetics',
+        'Magazines',
+        'Kitchen & Dining',
+        'Fashion & Accessories',
+    ];
+
+    const isLikelyProduct = (obj) => {
+        if (!obj || typeof obj !== 'object') return false;
+        const base = obj.product && typeof obj.product === 'object' ? obj.product : obj;
+        const name = extractName(base) || extractName(obj) || obj?.name?.text || obj?.name || null;
+        if (!name || typeof name !== 'string' || name.trim().length === 0) return false;
+        if (name === '[object Object]') return false;
+        const lowerName = name.toLowerCase();
+        if (nonProductPatterns.some(pattern => lowerName.includes(pattern.toLowerCase()))) return false;
+
+        const price = extractPrice(base) ?? extractPrice(obj);
+        const mrp = extractOriginalPrice(base) ?? extractOriginalPrice(obj);
+        const productId = extractProductId(base) ?? extractProductId(obj);
+
+        // Require at least one strong product signal (price, mrp, or id)
+        return price !== null || mrp !== null || productId !== null;
+    };
 
     const pushProduct = (obj) => {
         if (!obj || typeof obj !== 'object') return;
@@ -195,44 +272,7 @@ const extractProductsFromPayloads = (payloads = []) => {
             }
         }
 
-        // Additional validation: skip if it looks like a category or ad
-        const name = obj.name?.text || obj.name || obj.product_name;
-        if (name) {
-            // Skip if name matches known non-product patterns
-            const nonProductPatterns = [
-                'ads_vertical_banner',
-                'ad_banner',
-                'Vegetables & Fruits',
-                'Dairy & Breakfast',
-                'Munchies',
-                'Cold Drinks',
-                'Instant & Frozen',
-                'Tea, Coffee',
-                'Bakery & Biscuits',
-                'Sweet Tooth',
-                'Atta, Rice & Dal',
-                'Dry Fruits, Masala',
-                'Sauces & Spreads',
-                'Chicken, Meat & Fish',
-                'Paan Corner',
-                'Organic & Premium',
-                'Baby Care',
-                'Pharma & Wellness',
-                'Personal Care',
-                'Home & Office',
-                'Pet Care'
-            ];
-
-            if (typeof name === 'string') {
-                const lowerName = name.toLowerCase();
-                const isCategory = nonProductPatterns.some(pattern =>
-                    lowerName.includes(pattern.toLowerCase())
-                );
-                if (isCategory) return; // Skip categories
-            } else if (name.toString() === '[object Object]') {
-                return; // Skip invalid object names
-            }
-        }
+        if (!isLikelyProduct(obj)) return;
 
         seenObjects.add(obj);
         rawProducts.push(obj);
@@ -283,6 +323,7 @@ const extractProductsFromPayloads = (payloads = []) => {
     for (const raw of rawProducts) {
         const n = normalizeProduct(raw);
         if (!n.product_name) continue;
+        if (n.price === null && n.original_price === null && !n.product_url) continue;
         const key = `${n.product_name}|${n.price ?? ''}|${n.original_price ?? ''}|${n.product_image ?? ''}|${n.product_url ?? ''}`;
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
@@ -381,14 +422,41 @@ async function main() {
         };
 
         let totalScraped = 0;
+        const seenProductKeys = new Set();
 
-        // Helper function to try multiple selectors
-        const findElement = (page, selectors) => {
-            for (const selector of selectors) {
-                const element = page.locator(selector).first();
-                if (element) return element;
+        const makeProductKey = (product) => {
+            if (!product) return null;
+            const name = product.product_name || product.name || '';
+            const price = product.price ?? '';
+            const mrp = product.original_price ?? '';
+            const image = product.product_image ?? '';
+            const url = product.product_url ?? '';
+            const key = `${name}|${price}|${mrp}|${image}|${url}`.trim();
+            return key || null;
+        };
+
+        const countProductsOnPage = async (page) => {
+            for (const selector of SELECTORS.productContainer) {
+                try {
+                    const count = await page.locator(selector).count();
+                    if (count > 0) return count;
+                } catch {
+                    // ignore selector errors
+                }
             }
-            return null;
+            return 0;
+        };
+
+        const getReduxProductCount = async (page) => {
+            try {
+                return await page.evaluate(() => {
+                    const store = window.__reduxStore__?.getState?.();
+                    const snippets = store?.ui?.search?.searchProductBffData?.snippets || [];
+                    return snippets.filter(s => s?.widget_type === 'product_card_snippet_type_2' && s?.data?.name).length;
+                });
+            } catch {
+                return 0;
+            }
         };
 
         // Create Playwright crawler
@@ -518,9 +586,17 @@ async function main() {
                     const responseUrls = new Set();
                     const pushResults = async (products, label) => {
                         if (!products || products.length === 0) return false;
+                        const deduped = products.filter((p) => {
+                            const key = makeProductKey(p);
+                            if (!key) return false;
+                            if (seenProductKeys.has(key)) return false;
+                            seenProductKeys.add(key);
+                            return true;
+                        });
+                        if (deduped.length === 0) return false;
                         const remaining = RESULTS_WANTED > 0 ? RESULTS_WANTED - totalScraped : products.length;
                         if (remaining <= 0) return true;
-                        const limited = RESULTS_WANTED > 0 ? products.slice(0, remaining) : products;
+                        const limited = RESULTS_WANTED > 0 ? deduped.slice(0, remaining) : deduped;
                         const enriched = limited.map(p => ({
                             ...p,
                             search_query: searchQueryInput,
@@ -680,38 +756,120 @@ async function main() {
 
                     // PRIORITY 2: Scroll to load all products
                     log.info('Scrolling to load all products...');
-                    let previousHeight = 0;
+                    let previousHeight = await page.evaluate(() => document.body.scrollHeight);
+                    let previousCount = await countProductsOnPage(page);
+                    let previousReduxCount = await getReduxProductCount(page);
                     let scrollAttempts = 0;
-                    const maxScrollAttempts = 20;
+                    let stableRounds = 0;
+                    const maxScrollAttempts = 40;
+                    const maxStableRounds = 3;
 
-                    while (scrollAttempts < maxScrollAttempts) {
-                        // Check if we have enough products
-                        if (RESULTS_WANTED > 0) {
-                            const currentProductCount = await page.locator(SELECTORS.productContainer[0]).count();
-                            if (currentProductCount >= RESULTS_WANTED) {
-                                log.info(`Reached target product count (${currentProductCount} >= ${RESULTS_WANTED})`);
-                                break;
-                            }
-                        }
-
-                        // Scroll down with human-like behavior
-                        await page.evaluate(() => {
-                            window.scrollBy(0, window.innerHeight * 0.8);
-                        });
-                        await page.waitForTimeout(1000 + Math.random() * 1000);
-
-                        const currentHeight = await page.evaluate(() => document.body.scrollHeight);
-                        if (currentHeight === previousHeight) {
-                            log.info('Reached end of page');
+                    while (scrollAttempts < maxScrollAttempts && stableRounds < maxStableRounds) {
+                        if (RESULTS_WANTED > 0 && previousCount >= RESULTS_WANTED) {
+                            log.info(`Reached target product count (${previousCount} >= ${RESULTS_WANTED})`);
                             break;
                         }
+
+                        await page.evaluate(() => {
+                            window.scrollTo(0, document.body.scrollHeight);
+                        });
+                        await page.waitForTimeout(1200 + Math.random() * 1200);
+
+                        const currentHeight = await page.evaluate(() => document.body.scrollHeight);
+                        const currentCount = await countProductsOnPage(page);
+                        const currentReduxCount = await getReduxProductCount(page);
+
+                        const grew = currentHeight > previousHeight || currentCount > previousCount || currentReduxCount > previousReduxCount;
+                        if (!grew) {
+                            stableRounds += 1;
+                        } else {
+                            stableRounds = 0;
+                        }
+
                         previousHeight = currentHeight;
+                        previousCount = currentCount;
+                        previousReduxCount = currentReduxCount;
                         scrollAttempts++;
+                    }
+
+                    if (stableRounds >= maxStableRounds) {
+                        log.info('Reached end of page or no new products loaded');
                     }
 
                     log.info('Extracting product data from HTML...');
 
-                    // PRIORITY 3: Try captured JSON responses
+                    // PRIORITY 3: Re-check Redux store after scrolling
+                    const reduxAfterScroll = await page.evaluate(() => {
+                        try {
+                            if (window.__reduxStore__) {
+                                const state = window.__reduxStore__.getState();
+                                if (state.ui && state.ui.search && state.ui.search.searchProductBffData) {
+                                    return state.ui.search.searchProductBffData;
+                                }
+                            }
+                        } catch (e) {
+                            console.log('Redux store extraction failed:', e);
+                        }
+                        return null;
+                    });
+
+                    if (reduxAfterScroll && reduxAfterScroll.snippets) {
+                        const snippets = reduxAfterScroll.snippets.filter(s => {
+                            if (s.widget_type !== 'product_card_snippet_type_2') return false;
+                            if (!s.data || !s.data.name) return false;
+                            const name = s.data.name?.text || s.data.name;
+                            if (!name || typeof name !== 'string' || name.trim().length === 0) return false;
+                            return true;
+                        });
+
+                        const products = snippets.map(snippet => {
+                            const data = snippet.data || {};
+                            const tracking = snippet.tracking || {};
+                            const cartItem = data.atc_action?.add_to_cart?.cart_item || {};
+                            const impression = tracking.impression_map || {};
+
+                            const price = cartItem.price || impression.price || toNumber(data.price?.text) || null;
+                            const mrp = cartItem.mrp || impression.mrp || toNumber(data.mrp?.text) || null;
+                            const name = data.name?.text || data.name || cartItem.product_name || null;
+                            const id = cartItem.product_id || impression.product_id || data.product_id || null;
+
+                            let discount = data.discount?.text || null;
+                            if (!discount && price && mrp && mrp > price) {
+                                const off = Math.round(((mrp - price) / mrp) * 100);
+                                if (off > 0) discount = `${off}% OFF`;
+                            }
+
+                            let productUrl = null;
+                            if (id) {
+                                const slug = name ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'product';
+                                productUrl = `https://blinkit.com/prn/${slug}/prid/${id}`;
+                            }
+
+                            const isSoldOut = data.is_sold_out || false;
+                            const inventory = cartItem.inventory ?? impression.inventory ?? 0;
+                            const availability = (!isSoldOut && inventory > 0) ? 'In Stock' : 'Out of Stock';
+
+                            const deliveryTime = data.eta_tag?.text || data.delivery_time?.text || null;
+
+                            return {
+                                product_name: name,
+                                price: price,
+                                original_price: mrp,
+                                product_image: data.image?.url || cartItem.image_url || null,
+                                availability: availability,
+                                product_url: productUrl,
+                                discount_percentage: discount,
+                                delivery_time: deliveryTime
+                            };
+                        }).filter(p => p.product_name);
+
+                        if (products.length > 0) {
+                            const done = await pushResults(products, 'Redux Store (after scroll)');
+                            if (done) return;
+                        }
+                    }
+
+                    // PRIORITY 4: Try captured JSON responses
                     const networkProducts = extractProductsFromPayloads(responsePayloads);
                     if (networkProducts.length > 0) {
                         const done = await pushResults(networkProducts, 'network JSON');

@@ -66,16 +66,3 @@
     }
   }
 }
-          "productId": {
-            "label": "Product ID",
-            "format": "text"
-          },
-          "scrapedAt": {
-            "label": "Scraped At",
-            "format": "date"
-          }
-        }
-      }
-    }
-  }
-}

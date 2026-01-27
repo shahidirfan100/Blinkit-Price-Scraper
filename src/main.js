@@ -246,7 +246,6 @@ async function main() {
         const input = (await Actor.getInput()) || {};
         const {
             search_query = '',
-            search_url = '',
             results_wanted: RESULTS_WANTED_RAW = 20,
             proxyConfiguration: proxyConfig,
             latitude,
@@ -258,47 +257,19 @@ async function main() {
             ? +RESULTS_WANTED_RAW
             : 0; // 0 means unlimited
 
-        const searchUrlInput = typeof search_url === 'string' ? search_url.trim() : '';
         const searchQueryInput = typeof search_query === 'string' ? search_query.trim() : '';
-        let finalSearchUrl = '';
-        let effectiveQuery = searchQueryInput;
-        let geoLatitude = Number.isFinite(+latitude) ? Number(latitude) : null;
-        let geoLongitude = Number.isFinite(+longitude) ? Number(longitude) : null;
 
-        if (searchUrlInput) {
-            if (!/^https?:\/\//i.test(searchUrlInput)) {
-                throw new Error('search_url must start with http:// or https://');
-            }
-            finalSearchUrl = searchUrlInput;
-            effectiveQuery = '';
-            try {
-                const url = new URL(searchUrlInput);
-                effectiveQuery = url.searchParams.get('q') || url.searchParams.get('query') || '';
-                const latParam = url.searchParams.get('lat') || url.searchParams.get('latitude');
-                const lngParam = url.searchParams.get('lng') || url.searchParams.get('lon') || url.searchParams.get('longitude');
-                const parsedLat = latParam !== null ? Number(latParam) : null;
-                const parsedLng = lngParam !== null ? Number(lngParam) : null;
-                if (Number.isFinite(parsedLat) && Number.isFinite(parsedLng)) {
-                    geoLatitude = parsedLat;
-                    geoLongitude = parsedLng;
-                    log.info(`Geolocation derived from search_url: ${geoLatitude}, ${geoLongitude}`);
-                }
-            } catch {
-                // Ignore URL parsing errors, still use raw URL
-            }
-        } else if (searchQueryInput) {
-            finalSearchUrl = `https://blinkit.com/s/?q=${encodeURIComponent(searchQueryInput)}`;
-        } else {
-            throw new Error('Provide search_query or search_url');
+        if (!searchQueryInput) {
+            throw new Error('search_query is required and cannot be empty');
         }
 
-        const searchQueryForOutput = effectiveQuery || '';
+        const searchUrl = `https://blinkit.com/s/?q=${encodeURIComponent(searchQueryInput)}`;
+        const geoLatitude = Number.isFinite(+latitude) ? Number(latitude) : null;
+        const geoLongitude = Number.isFinite(+longitude) ? Number(longitude) : null;
 
-        log.info(`Starting Blinkit scraper for query: "${searchQueryForOutput || 'N/A'}"`);
+        log.info(`Starting Blinkit scraper for query: "${searchQueryInput}"`);
         log.info(`Target results: ${RESULTS_WANTED === 0 ? 'unlimited' : RESULTS_WANTED}`);
-
-        // Construct search URL
-        log.info(`Search URL: ${finalSearchUrl}`);
+        log.info(`Search URL: ${searchUrl}`);
 
         // Create proxy configuration (residential recommended for Blinkit)
         const proxyConfiguration = await Actor.createProxyConfiguration(proxyConfig || {
@@ -502,7 +473,7 @@ async function main() {
                         const limited = RESULTS_WANTED > 0 ? products.slice(0, remaining) : products;
                         const enriched = limited.map(p => ({
                             ...p,
-                            search_query: searchQueryForOutput,
+                            search_query: searchQueryInput,
                             url: request.url,
                             scrapedAt: new Date().toISOString(),
                         }));
@@ -796,7 +767,7 @@ async function main() {
         });
 
         // Run crawler
-        await crawler.run([{ url: finalSearchUrl }]);
+        await crawler.run([{ url: searchUrl }]);
 
         log.info(`✅ Scraping completed! Total products scraped: ${totalScraped}`);
 

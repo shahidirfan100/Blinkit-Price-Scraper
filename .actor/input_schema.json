@@ -4,13 +4,6 @@
   "type": "object",
   "schemaVersion": 1,
   "properties": {
-    "search_url": {
-      "title": "Search URL",
-      "type": "string",
-      "description": "Full Blinkit search URL. If provided, it overrides Search Query. Optional lat/lng params will override latitude/longitude.",
-      "editor": "textfield",
-      "prefill": ""
-    },
     "search_query": {
       "title": "Search Query",
       "type": "string",

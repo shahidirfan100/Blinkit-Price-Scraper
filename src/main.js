@@ -196,29 +196,60 @@ async function main() {
     try {
         const input = (await Actor.getInput()) || {};
         const {
-            search_query = 'milk',
+            search_query = '',
+            search_url = '',
             results_wanted: RESULTS_WANTED_RAW = 20,
             proxyConfiguration: proxyConfig,
             latitude,
             longitude,
-            setGeolocation = false,
+            setGeolocation = true,
         } = input;
 
         const RESULTS_WANTED = Number.isFinite(+RESULTS_WANTED_RAW) && +RESULTS_WANTED_RAW > 0 
             ? +RESULTS_WANTED_RAW 
             : 0; // 0 means unlimited
 
-        log.info(`Starting Blinkit scraper for query: "${search_query}"`);
+        const searchUrlInput = typeof search_url === 'string' ? search_url.trim() : '';
+        const searchQueryInput = typeof search_query === 'string' ? search_query.trim() : '';
+        let finalSearchUrl = '';
+        let effectiveQuery = searchQueryInput;
+        let geoLatitude = Number.isFinite(+latitude) ? Number(latitude) : null;
+        let geoLongitude = Number.isFinite(+longitude) ? Number(longitude) : null;
+
+        if (searchUrlInput) {
+            if (!/^https?:\/\//i.test(searchUrlInput)) {
+                throw new Error('search_url must start with http:// or https://');
+            }
+            finalSearchUrl = searchUrlInput;
+            effectiveQuery = '';
+            try {
+                const url = new URL(searchUrlInput);
+                effectiveQuery = url.searchParams.get('q') || url.searchParams.get('query') || '';
+                const latParam = url.searchParams.get('lat') || url.searchParams.get('latitude');
+                const lngParam = url.searchParams.get('lng') || url.searchParams.get('lon') || url.searchParams.get('longitude');
+                const parsedLat = latParam !== null ? Number(latParam) : null;
+                const parsedLng = lngParam !== null ? Number(lngParam) : null;
+                if (Number.isFinite(parsedLat) && Number.isFinite(parsedLng)) {
+                    geoLatitude = parsedLat;
+                    geoLongitude = parsedLng;
+                    log.info(`Geolocation derived from search_url: ${geoLatitude}, ${geoLongitude}`);
+                }
+            } catch {
+                // Ignore URL parsing errors, still use raw URL
+            }
+        } else if (searchQueryInput) {
+            finalSearchUrl = `https://blinkit.com/s/?q=${encodeURIComponent(searchQueryInput)}`;
+        } else {
+            throw new Error('Provide search_query or search_url');
+        }
+
+        const searchQueryForOutput = effectiveQuery || '';
+
+        log.info(`Starting Blinkit scraper for query: "${searchQueryForOutput || 'N/A'}"`);
         log.info(`Target results: ${RESULTS_WANTED === 0 ? 'unlimited' : RESULTS_WANTED}`);
 
         // Construct search URL
-        const searchUrl = `https://blinkit.com/s/?q=${encodeURIComponent(search_query)}`;
-        log.info(`Search URL: ${searchUrl}`);
-
-        // Validate input
-        if (!search_query || search_query.trim().length === 0) {
-            throw new Error('search_query is required and cannot be empty');
-        }
+        log.info(`Search URL: ${finalSearchUrl}`);
 
         // Create proxy configuration (residential recommended for Blinkit)
         const proxyConfiguration = await Actor.createProxyConfiguration(proxyConfig || {
@@ -321,14 +352,18 @@ async function main() {
             // Pre-navigation hooks for stealth
             preNavigationHooks: [
                 async ({ page, request }) => {
-                    if (setGeolocation && Number.isFinite(+latitude) && Number.isFinite(+longitude)) {
+                    if (setGeolocation) {
                         try {
-                            await page.context().grantPermissions(['geolocation']);
-                            await page.context().setGeolocation({
-                                latitude: Number(latitude),
-                                longitude: Number(longitude),
-                            });
-                            log.info(`Geolocation set to ${latitude}, ${longitude}`);
+                            if (Number.isFinite(geoLatitude) && Number.isFinite(geoLongitude)) {
+                                await page.context().grantPermissions(['geolocation']);
+                                await page.context().setGeolocation({
+                                    latitude: Number(geoLatitude),
+                                    longitude: Number(geoLongitude),
+                                });
+                                log.info(`Geolocation set to ${geoLatitude}, ${geoLongitude}`);
+                            } else {
+                                log.warning('Geolocation enabled but latitude/longitude are missing or invalid.');
+                            }
                         } catch (error) {
                             log.warning('Failed to set geolocation');
                         }
@@ -471,7 +506,7 @@ async function main() {
                             const limit = RESULTS_WANTED > 0 ? RESULTS_WANTED : extracted.length;
                             const limitedProducts = extracted.slice(0, limit).map(p => ({
                                 ...p,
-                                search_query: search_query,
+                                search_query: searchQueryForOutput,
                                 url: request.url,
                                 scrapedAt: new Date().toISOString(),
                             }));
@@ -522,7 +557,7 @@ async function main() {
                         const limit = RESULTS_WANTED > 0 ? RESULTS_WANTED : networkProducts.length;
                         const limitedProducts = networkProducts.slice(0, limit).map(p => ({
                             ...p,
-                            search_query: search_query,
+                            search_query: searchQueryForOutput,
                             url: request.url,
                             scrapedAt: new Date().toISOString(),
                         }));
@@ -619,14 +654,14 @@ async function main() {
                         log.warning('No products extracted! Saving debug HTML for inspection...');
                         log.warning('If results are empty, Blinkit may require a delivery location. Consider enabling setGeolocation with latitude/longitude.');
                         await Actor.setValue('debug-no-products', await page.content(), { contentType: 'text/html' });
-                        await Actor.setValue('debug-response-urls', Array.from(responseUrls), { contentType: 'application/json' });
+                        await Actor.setValue('debug-response-urls', JSON.stringify(Array.from(responseUrls), null, 2), { contentType: 'application/json' });
                         return;
                     }
 
                     // Add search query and URL to each product
                     const enrichedProducts = products.map(p => ({
                         ...p,
-                        search_query: search_query,
+                        search_query: searchQueryForOutput,
                         url: request.url
                     }));
 
@@ -652,7 +687,7 @@ async function main() {
         });
 
         // Run crawler
-        await crawler.run([{ url: searchUrl }]);
+        await crawler.run([{ url: finalSearchUrl }]);
 
         log.info(`✅ Scraping completed! Total products scraped: ${totalScraped}`);
 

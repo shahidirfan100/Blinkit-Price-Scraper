@@ -4,6 +4,13 @@
   "type": "object",
   "schemaVersion": 1,
   "properties": {
+    "search_url": {
+      "title": "Search URL",
+      "type": "string",
+      "description": "Full Blinkit search URL. If provided, it overrides Search Query. Optional lat/lng params will override latitude/longitude.",
+      "editor": "textfield",
+      "prefill": ""
+    },
     "search_query": {
       "title": "Search Query",
       "type": "string",
@@ -21,24 +28,12 @@
       "prefill": 20,
       "editor": "number"
     },
-    "proxyConfiguration": {
-      "title": "Proxy configuration",
-      "type": "object",
-      "description": "Use Apify Proxy for reliable scraping (Residential recommended for Blinkit).",
-      "editor": "proxy",
-      "default": {
-        "useApifyProxy": true,
-        "apifyProxyGroups": [
-          "RESIDENTIAL"
-        ]
-      }
-    },
     "setGeolocation": {
       "title": "Set geolocation",
       "type": "boolean",
       "description": "If enabled, sets a fixed geolocation for the browser session (useful when Blinkit requires a delivery location).",
-      "default": false,
-      "prefill": false,
+      "default": true,
+      "prefill": true,
       "editor": "checkbox"
     },
     "latitude": {
@@ -56,6 +51,18 @@
       "default": 77.209,
       "prefill": 77.209,
       "editor": "number"
+    }
+  },
+  "proxyConfiguration": {
+    "title": "Proxy configuration",
+    "type": "object",
+    "description": "Use Apify Proxy for reliable scraping (Residential recommended for Blinkit).",
+    "editor": "proxy",
+    "default": {
+      "useApifyProxy": true,
+      "apifyProxyGroups": [
+        "RESIDENTIAL"
+      ]
     }
   },
   "required": [],

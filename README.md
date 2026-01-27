@@ -34,9 +34,10 @@ Gather pricing data for consumer behavior studies and shopping trend analysis.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `search_query` | String | No | `milk` | Product search keyword(s) (e.g., milk, vegetables, snacks) |
+| `search_url` | String | No | `""` | Full Blinkit search URL (overrides `search_query`) |
 | `results_wanted` | Integer | No | `20` | Maximum number of products to collect (0 = unlimited) |
 | `proxyConfiguration` | Object | No | Residential | Proxy settings for reliable scraping |
-| `setGeolocation` | Boolean | No | `false` | Set a fixed geolocation to help Blinkit load products for a delivery area |
+| `setGeolocation` | Boolean | No | `true` | Set a fixed geolocation to help Blinkit load products for a delivery area |
 | `latitude` | Number | No | `28.6139` | Latitude used when `setGeolocation` is enabled |
 | `longitude` | Number | No | `77.2090` | Longitude used when `setGeolocation` is enabled |
 
@@ -87,6 +88,17 @@ Each product in the dataset contains:
     "longitude": 77.209
 }
 ```
+
+### Search via URL
+
+```json
+{
+    "search_url": "https://blinkit.com/s/?q=milk",
+    "results_wanted": 20
+}
+```
+
+Note: If `search_url` includes `lat`/`lng` (or `latitude`/`longitude`) query parameters, those values override `latitude`/`longitude` when `setGeolocation` is enabled.
 
 ### Search for Vegetables
 

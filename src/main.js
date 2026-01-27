@@ -184,6 +184,56 @@ const extractProductsFromPayloads = (payloads = []) => {
     const pushProduct = (obj) => {
         if (!obj || typeof obj !== 'object') return;
         if (seenObjects.has(obj)) return;
+
+        // Filter out non-product widgets (ads, banners, categories, etc.)
+        if (obj.widget_type) {
+            // Only allow product card widgets
+            if (obj.widget_type !== 'product_card_snippet_type_2' &&
+                obj.widget_type !== 'product_card' &&
+                !obj.widget_type.includes('product')) {
+                return; // Skip ads, banners, categories, etc.
+            }
+        }
+
+        // Additional validation: skip if it looks like a category or ad
+        const name = obj.name?.text || obj.name || obj.product_name;
+        if (name) {
+            // Skip if name matches known non-product patterns
+            const nonProductPatterns = [
+                'ads_vertical_banner',
+                'ad_banner',
+                'Vegetables & Fruits',
+                'Dairy & Breakfast',
+                'Munchies',
+                'Cold Drinks',
+                'Instant & Frozen',
+                'Tea, Coffee',
+                'Bakery & Biscuits',
+                'Sweet Tooth',
+                'Atta, Rice & Dal',
+                'Dry Fruits, Masala',
+                'Sauces & Spreads',
+                'Chicken, Meat & Fish',
+                'Paan Corner',
+                'Organic & Premium',
+                'Baby Care',
+                'Pharma & Wellness',
+                'Personal Care',
+                'Home & Office',
+                'Pet Care'
+            ];
+
+            if (typeof name === 'string') {
+                const lowerName = name.toLowerCase();
+                const isCategory = nonProductPatterns.some(pattern =>
+                    lowerName.includes(pattern.toLowerCase())
+                );
+                if (isCategory) return; // Skip categories
+            } else if (name.toString() === '[object Object]') {
+                return; // Skip invalid object names
+            }
+        }
+
         seenObjects.add(obj);
         rawProducts.push(obj);
     };

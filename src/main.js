@@ -540,8 +540,18 @@ async function main() {
                     });
 
                     if (reduxStoreData && reduxStoreData.snippets) {
-                        // The snippets array contains product cards
-                        const snippets = reduxStoreData.snippets.filter(s => s.data && s.data.name);
+                        // The snippets array contains product cards, ads, and other widgets
+                        // Filter to only include actual product snippets
+                        const snippets = reduxStoreData.snippets.filter(s => {
+                            // Only include product_card_snippet_type_2 (actual products)
+                            // Exclude ads_vertical_banner, category widgets, etc.
+                            if (s.widget_type !== 'product_card_snippet_type_2') return false;
+                            if (!s.data || !s.data.name) return false;
+                            // Ensure it has a valid name (not [object Object] or undefined)
+                            const name = s.data.name?.text || s.data.name;
+                            if (!name || typeof name !== 'string' || name.trim().length === 0) return false;
+                            return true;
+                        });
                         const products = snippets.map(snippet => {
                             const data = snippet.data || {};
                             const tracking = snippet.tracking || {};

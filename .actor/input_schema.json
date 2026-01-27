@@ -51,18 +51,18 @@
       "default": 77.209,
       "prefill": 77.209,
       "editor": "number"
-    }
-  },
-  "proxyConfiguration": {
-    "title": "Proxy configuration",
-    "type": "object",
-    "description": "Use Apify Proxy for reliable scraping (Residential recommended for Blinkit).",
-    "editor": "proxy",
-    "default": {
-      "useApifyProxy": true,
-      "apifyProxyGroups": [
-        "RESIDENTIAL"
-      ]
+    },
+    "proxyConfiguration": {
+      "title": "Proxy configuration",
+      "type": "object",
+      "description": "Use Apify Proxy for reliable scraping (Residential recommended for Blinkit).",
+      "editor": "proxy",
+      "default": {
+        "useApifyProxy": true,
+        "apifyProxyGroups": [
+          "RESIDENTIAL"
+        ]
+      }
     }
   },
   "required": [],

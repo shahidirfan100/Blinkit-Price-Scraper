@@ -4,6 +4,194 @@ import { Actor, log } from 'apify';
 
 await Actor.init();
 
+const PRODUCT_KEYS = {
+    name: ['name', 'product_name', 'title', 'productName', 'display_name', 'displayName', 'item_name'],
+    price: ['price', 'selling_price', 'offer_price', 'discounted_price', 'final_price', 'sp', 'sale_price', 'unit_price'],
+    originalPrice: ['mrp', 'original_price', 'list_price', 'mrp_price'],
+    discount: ['discount', 'discount_text', 'discount_percentage', 'discountPercent', 'offer_text'],
+    image: ['image', 'image_url', 'imageUrl', 'thumbnail', 'img', 'picture', 'product_image'],
+    availability: ['in_stock', 'available', 'availability', 'stock'],
+    delivery: ['eta', 'delivery_time', 'deliveryTime'],
+    url: ['product_url', 'productUrl', 'url', 'slug'],
+};
+
+const pickFirst = (obj, keys) => {
+    if (!obj || typeof obj !== 'object') return null;
+    for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(obj, key) && obj[key] !== undefined && obj[key] !== null) {
+            return obj[key];
+        }
+    }
+    return null;
+};
+
+const toNumber = (value) => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const str = String(value).trim();
+    if (!str) return null;
+    const cleaned = str.replace(/[^\d.]/g, '');
+    if (!cleaned) return null;
+    const num = Number.parseFloat(cleaned);
+    return Number.isFinite(num) ? num : null;
+};
+
+const extractImage = (obj) => {
+    const direct = pickFirst(obj, PRODUCT_KEYS.image);
+    if (typeof direct === 'string') return direct;
+    if (direct && typeof direct === 'object') {
+        const nested = pickFirst(direct, ['url', 'src', 'image', 'imageUrl']);
+        if (typeof nested === 'string') return nested;
+    }
+    const images = obj?.images || obj?.image_urls || obj?.imageUrls;
+    if (Array.isArray(images) && images.length > 0) {
+        const first = images[0];
+        if (typeof first === 'string') return first;
+        if (first && typeof first === 'object') {
+            const nested = pickFirst(first, ['url', 'src', 'image', 'imageUrl']);
+            if (typeof nested === 'string') return nested;
+        }
+    }
+    return null;
+};
+
+const extractPrice = (obj) => {
+    let value = pickFirst(obj, PRODUCT_KEYS.price);
+    if (value && typeof value === 'object') {
+        value = pickFirst(value, ['selling_price', 'offer_price', 'price', 'final_price', 'mrp', 'list_price']);
+    }
+    return toNumber(value);
+};
+
+const extractOriginalPrice = (obj) => {
+    let value = pickFirst(obj, PRODUCT_KEYS.originalPrice);
+    if (value && typeof value === 'object') {
+        value = pickFirst(value, ['mrp', 'list_price', 'original_price']);
+    }
+    return toNumber(value);
+};
+
+const extractName = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.name);
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string') return value.trim();
+    return String(value).trim();
+};
+
+const extractAvailability = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.availability);
+    if (typeof value === 'boolean') return value ? 'In Stock' : 'Out of Stock';
+    if (typeof value === 'string') {
+        const lowered = value.toLowerCase();
+        if (lowered.includes('out')) return 'Out of Stock';
+        if (lowered.includes('in')) return 'In Stock';
+    }
+    return null;
+};
+
+const extractDelivery = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.delivery);
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string') return value.trim();
+    return String(value).trim();
+};
+
+const extractDiscount = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.discount);
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number') return `${value}%`;
+    return null;
+};
+
+const scoreProduct = (obj) => {
+    let score = 0;
+    if (extractName(obj)) score += 2;
+    if (extractPrice(obj) !== null) score += 2;
+    if (extractOriginalPrice(obj) !== null) score += 1;
+    if (extractImage(obj)) score += 1;
+    if (extractAvailability(obj)) score += 1;
+    return score;
+};
+
+const findProductArrays = (root) => {
+    const candidates = [];
+    const seen = new Set();
+
+    const walk = (node, depth = 0) => {
+        if (!node || typeof node !== 'object') return;
+        if (seen.has(node) || depth > 7) return;
+        seen.add(node);
+
+        if (Array.isArray(node)) {
+            if (node.length > 0 && node.every(item => item && typeof item === 'object' && !Array.isArray(item))) {
+                const sample = node.slice(0, Math.min(25, node.length));
+                const avgScore = sample.reduce((sum, item) => sum + scoreProduct(item), 0) / sample.length;
+                if (avgScore >= 3) {
+                    candidates.push({ items: node, score: avgScore, size: node.length });
+                }
+            }
+            for (const item of node) walk(item, depth + 1);
+            return;
+        }
+
+        for (const key of Object.keys(node)) {
+            walk(node[key], depth + 1);
+        }
+    };
+
+    walk(root, 0);
+    if (candidates.length === 0) return null;
+
+    candidates.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return b.size - a.size;
+    });
+
+    return candidates[0].items;
+};
+
+const normalizeProduct = (raw) => {
+    const base = raw && typeof raw === 'object' && raw.product && typeof raw.product === 'object'
+        ? raw.product
+        : raw;
+
+    const productName = extractName(base) || extractName(raw);
+    const price = extractPrice(base) ?? extractPrice(raw);
+    const originalPrice = extractOriginalPrice(base) ?? extractOriginalPrice(raw);
+    const discount = extractDiscount(base) ?? extractDiscount(raw);
+    const image = extractImage(base) ?? extractImage(raw);
+    const availability = extractAvailability(base) ?? extractAvailability(raw);
+    const delivery = extractDelivery(base) ?? extractDelivery(raw);
+    const productUrl = pickFirst(base, PRODUCT_KEYS.url) || pickFirst(raw, PRODUCT_KEYS.url) || null;
+
+    return {
+        product_name: productName,
+        price,
+        original_price: originalPrice,
+        discount_percentage: discount,
+        product_image: image,
+        availability: availability || 'Unknown',
+        delivery_time: delivery,
+        product_url: typeof productUrl === 'string' ? productUrl : null,
+    };
+};
+
+const extractProductsFromPayloads = (payloads = []) => {
+    const candidates = [];
+    for (const payload of payloads) {
+        const items = findProductArrays(payload);
+        if (items && items.length > 0) {
+            candidates.push(items);
+        }
+    }
+
+    if (candidates.length === 0) return [];
+
+    const best = candidates.reduce((prev, curr) => (curr.length > prev.length ? curr : prev), candidates[0]);
+    return best.map(normalizeProduct).filter(p => p.product_name);
+};
+
 async function main() {
     try {
         const input = (await Actor.getInput()) || {};
@@ -11,6 +199,9 @@ async function main() {
             search_query = 'milk',
             results_wanted: RESULTS_WANTED_RAW = 20,
             proxyConfiguration: proxyConfig,
+            latitude,
+            longitude,
+            setGeolocation = false,
         } = input;
 
         const RESULTS_WANTED = Number.isFinite(+RESULTS_WANTED_RAW) && +RESULTS_WANTED_RAW > 0 
@@ -130,6 +321,19 @@ async function main() {
             // Pre-navigation hooks for stealth
             preNavigationHooks: [
                 async ({ page, request }) => {
+                    if (setGeolocation && Number.isFinite(+latitude) && Number.isFinite(+longitude)) {
+                        try {
+                            await page.context().grantPermissions(['geolocation']);
+                            await page.context().setGeolocation({
+                                latitude: Number(latitude),
+                                longitude: Number(longitude),
+                            });
+                            log.info(`Geolocation set to ${latitude}, ${longitude}`);
+                        } catch (error) {
+                            log.warning('Failed to set geolocation');
+                        }
+                    }
+
                     // Add realistic headers
                     await page.setExtraHTTPHeaders({
                         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -204,6 +408,28 @@ async function main() {
                 log.info(`Processing: ${request.url}`);
 
                 try {
+                    const responsePayloads = [];
+                    const responseUrls = new Set();
+
+                    const responseListener = async (response) => {
+                        const url = response.url();
+                        const contentType = response.headers()['content-type'] || '';
+                        if (!contentType.includes('application/json')) return;
+                        if (!/search|catalog|product|listing|plp|collection|browse|autocomplete|autosuggest|items|v\\d+/i.test(url)) {
+                            return;
+                        }
+                        if (responseUrls.has(url)) return;
+                        try {
+                            const json = await response.json();
+                            responsePayloads.push(json);
+                            responseUrls.add(url);
+                        } catch {
+                            // Ignore non-JSON or unreadable responses
+                        }
+                    };
+
+                    page.on('response', responseListener);
+
                     // Wait for page to load
                     await page.waitForLoadState('domcontentloaded');
                     
@@ -230,13 +456,7 @@ async function main() {
                             const nextDataScript = document.getElementById('__NEXT_DATA__');
                             if (nextDataScript) {
                                 const json = JSON.parse(nextDataScript.textContent);
-                                // Navigate the JSON structure to find products
-                                // Blinkit likely uses Next.js, products might be in props
-                                const products = json?.props?.pageProps?.initialState?.products ||
-                                               json?.props?.pageProps?.products ||
-                                               json?.props?.products ||
-                                               [];
-                                return products.length > 0 ? products : null;
+                                return json || null;
                             }
                         } catch (e) {
                             console.log('__NEXT_DATA__ extraction failed:', e);
@@ -244,28 +464,23 @@ async function main() {
                         return null;
                     });
 
-                    if (nextDataProducts && nextDataProducts.length > 0) {
-                        log.info(`Found ${nextDataProducts.length} products in __NEXT_DATA__`);
-                        const products = nextDataProducts.map(p => ({
-                            product_name: p.name || p.product_name || p.title || null,
-                            price: p.price || p.offer_price || p.selling_price || null,
-                            original_price: p.mrp || p.original_price || p.list_price || null,
-                            discount_percentage: p.discount_text || p.discount || null,
-                            product_image: p.image_url || p.image || p.thumbnail || null,
-                            availability: p.in_stock ? 'In Stock' : 'Out of Stock',
-                            delivery_time: p.eta || p.delivery_time || null,
-                            search_query: search_query,
-                            url: request.url,
-                            scrapedAt: new Date().toISOString()
-                        }));
-                        
-                        const limit = RESULTS_WANTED > 0 ? RESULTS_WANTED : products.length;
-                        const limitedProducts = products.slice(0, limit);
-                        
-                        await Dataset.pushData(limitedProducts);
-                        totalScraped += limitedProducts.length;
-                        log.info(`Extracted ${limitedProducts.length} products from __NEXT_DATA__`);
-                        return;
+                    if (nextDataProducts) {
+                        const extracted = extractProductsFromPayloads([nextDataProducts]);
+                        if (extracted.length > 0) {
+                            log.info(`Found ${extracted.length} products in __NEXT_DATA__ payload`);
+                            const limit = RESULTS_WANTED > 0 ? RESULTS_WANTED : extracted.length;
+                            const limitedProducts = extracted.slice(0, limit).map(p => ({
+                                ...p,
+                                search_query: search_query,
+                                url: request.url,
+                                scrapedAt: new Date().toISOString(),
+                            }));
+
+                            await Dataset.pushData(limitedProducts);
+                            totalScraped += limitedProducts.length;
+                            log.info(`Extracted ${limitedProducts.length} products from __NEXT_DATA__`);
+                            return;
+                        }
                     }
 
                     // PRIORITY 2: Scroll to load all products
@@ -300,6 +515,23 @@ async function main() {
                     }
 
                     log.info('Extracting product data from HTML...');
+
+                    // PRIORITY 3: Try captured JSON responses
+                    const networkProducts = extractProductsFromPayloads(responsePayloads);
+                    if (networkProducts.length > 0) {
+                        const limit = RESULTS_WANTED > 0 ? RESULTS_WANTED : networkProducts.length;
+                        const limitedProducts = networkProducts.slice(0, limit).map(p => ({
+                            ...p,
+                            search_query: search_query,
+                            url: request.url,
+                            scrapedAt: new Date().toISOString(),
+                        }));
+
+                        await Dataset.pushData(limitedProducts);
+                        totalScraped += limitedProducts.length;
+                        log.info(`Extracted ${limitedProducts.length} products from network JSON`);
+                        return;
+                    }
 
                     // PRIORITY 3: Extract using browser context with fallback selectors
                     const products = await page.evaluate(({ selectors, resultsWanted }) => {
@@ -385,7 +617,9 @@ async function main() {
                     // Validate extraction
                     if (products.length === 0) {
                         log.warning('No products extracted! Saving debug HTML for inspection...');
+                        log.warning('If results are empty, Blinkit may require a delivery location. Consider enabling setGeolocation with latitude/longitude.');
                         await Actor.setValue('debug-no-products', await page.content(), { contentType: 'text/html' });
+                        await Actor.setValue('debug-response-urls', Array.from(responseUrls), { contentType: 'application/json' });
                         return;
                     }
 

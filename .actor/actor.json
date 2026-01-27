@@ -3,7 +3,7 @@
   "name": "blinkit-price-scraper",
   "version": "1.0.0",
   "meta": {
-    "generatedBy": "Claude Sonnet 4.5"
+    "generatedBy": "GPT-5"
   },
   "buildTag": "latest",
   "dockerfile": "../Dockerfile",

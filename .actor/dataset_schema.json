@@ -13,6 +13,7 @@
           "product_image",
           "availability",
           "delivery_time",
+          "product_url",
           "search_query",
           "url",
           "scrapedAt"
@@ -48,6 +49,10 @@
           "delivery_time": {
             "label": "Delivery Time",
             "format": "text"
+          },
+          "product_url": {
+            "label": "Product URL",
+            "format": "link"
           },
           "search_query": {
             "label": "Search Query",

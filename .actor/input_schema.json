@@ -32,6 +32,30 @@
           "RESIDENTIAL"
         ]
       }
+    },
+    "setGeolocation": {
+      "title": "Set geolocation",
+      "type": "boolean",
+      "description": "If enabled, sets a fixed geolocation for the browser session (useful when Blinkit requires a delivery location).",
+      "default": false,
+      "prefill": false,
+      "editor": "checkbox"
+    },
+    "latitude": {
+      "title": "Latitude",
+      "type": "number",
+      "description": "Latitude for geolocation (used only when Set geolocation is enabled).",
+      "default": 28.6139,
+      "prefill": 28.6139,
+      "editor": "number"
+    },
+    "longitude": {
+      "title": "Longitude",
+      "type": "number",
+      "description": "Longitude for geolocation (used only when Set geolocation is enabled).",
+      "default": 77.209,
+      "prefill": 77.209,
+      "editor": "number"
     }
   },
   "required": [],

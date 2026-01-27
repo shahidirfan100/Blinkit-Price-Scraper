@@ -36,6 +36,9 @@ Gather pricing data for consumer behavior studies and shopping trend analysis.
 | `search_query` | String | No | `milk` | Product search keyword(s) (e.g., milk, vegetables, snacks) |
 | `results_wanted` | Integer | No | `20` | Maximum number of products to collect (0 = unlimited) |
 | `proxyConfiguration` | Object | No | Residential | Proxy settings for reliable scraping |
+| `setGeolocation` | Boolean | No | `false` | Set a fixed geolocation to help Blinkit load products for a delivery area |
+| `latitude` | Number | No | `28.6139` | Latitude used when `setGeolocation` is enabled |
+| `longitude` | Number | No | `77.2090` | Longitude used when `setGeolocation` is enabled |
 
 ---
 
@@ -64,6 +67,7 @@ Each product in the dataset contains:
 | `product_image` | String | URL of the product image |
 | `availability` | String | Stock status (In Stock, Out of Stock, Unknown) |
 | `delivery_time` | String | Estimated delivery time (e.g., "13 MINS") |
+| `product_url` | String | Product page URL (when available) |
 | `search_query` | String | Search keyword used |
 | `url` | String | Search URL |
 | `scrapedAt` | String | Timestamp when data was scraped |
@@ -77,7 +81,10 @@ Each product in the dataset contains:
 ```json
 {
     "search_query": "milk",
-    "results_wanted": 20
+    "results_wanted": 20,
+    "setGeolocation": true,
+    "latitude": 28.6139,
+    "longitude": 77.209
 }
 ```
 
@@ -147,6 +154,8 @@ Each product in the dataset contains:
 
 ### Use Residential Proxies
 - Enable residential proxies for best reliability
+### Set a Delivery Location
+- If you see empty results, enable `setGeolocation` and provide `latitude`/`longitude` for a delivery area
 
 ### Use Proxies
 - Residential proxies recommended for Blinkit

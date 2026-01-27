@@ -16,12 +16,6 @@ const PRODUCT_KEYS = {
     id: ['product_id', 'productId', 'id', 'sku', 'sku_id', 'item_id', 'variant_id'],
 };
 
-/**
- * Pick the first defined value from an object using a list of keys.
- * @param {Object|null} obj - Source object.
- * @param {string[]} keys - Keys to check in order.
- * @returns {*|null} First defined value or null.
- */
 const pickFirst = (obj, keys) => {
     if (!obj || typeof obj !== 'object') return null;
     for (const key of keys) {
@@ -32,11 +26,6 @@ const pickFirst = (obj, keys) => {
     return null;
 };
 
-/**
- * Convert a value to a number if possible.
- * @param {*} value - Input value.
- * @returns {number|null} Parsed number or null.
- */
 const toNumber = (value) => {
     if (value === null || value === undefined) return null;
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -48,11 +37,6 @@ const toNumber = (value) => {
     return Number.isFinite(num) ? num : null;
 };
 
-/**
- * Extract a product image URL from a product-like object.
- * @param {Object|null} obj - Product-like object.
- * @returns {string|null} Image URL or null.
- */
 const extractImage = (obj) => {
     const direct = pickFirst(obj, PRODUCT_KEYS.image);
     if (typeof direct === 'string') return direct;
@@ -72,11 +56,6 @@ const extractImage = (obj) => {
     return null;
 };
 
-/**
- * Extract product ID from a product-like object.
- * @param {Object|null} obj - Product-like object.
- * @returns {string|number|null} Product ID or null.
- */
 const extractProductId = (obj) => {
     const value = pickFirst(obj, PRODUCT_KEYS.id);
     if (value === null || value === undefined) return null;
@@ -85,11 +64,6 @@ const extractProductId = (obj) => {
     return str ? str : null;
 };
 
-/**
- * Extract selling price from a product-like object.
- * @param {Object|null} obj - Product-like object.
- * @returns {number|null} Price or null.
- */
 const extractPrice = (obj) => {
     let value = pickFirst(obj, PRODUCT_KEYS.price);
     if (value && typeof value === 'object') {
@@ -98,11 +72,6 @@ const extractPrice = (obj) => {
     return toNumber(value);
 };
 
-/**
- * Extract original/MRP price from a product-like object.
- * @param {Object|null} obj - Product-like object.
- * @returns {number|null} Original price or null.
- */
 const extractOriginalPrice = (obj) => {
     let value = pickFirst(obj, PRODUCT_KEYS.originalPrice);
     if (value && typeof value === 'object') {
@@ -111,11 +80,6 @@ const extractOriginalPrice = (obj) => {
     return toNumber(value);
 };
 
-/**
- * Extract a product name.
- * @param {Object|null} obj - Product-like object.
- * @returns {string|null} Product name or null.
- */
 const extractName = (obj) => {
     const value = pickFirst(obj, PRODUCT_KEYS.name);
     if (value === null || value === undefined) return null;
@@ -123,11 +87,6 @@ const extractName = (obj) => {
     return String(value).trim();
 };
 
-/**
- * Normalize availability to "In Stock"/"Out of Stock".
- * @param {Object|null} obj - Product-like object.
- * @returns {string|null} Availability or null.
- */
 const extractAvailability = (obj) => {
     const value = pickFirst(obj, PRODUCT_KEYS.availability);
     if (typeof value === 'boolean') return value ? 'In Stock' : 'Out of Stock';
@@ -139,11 +98,6 @@ const extractAvailability = (obj) => {
     return null;
 };
 
-/**
- * Extract delivery time label.
- * @param {Object|null} obj - Product-like object.
- * @returns {string|null} Delivery label or null.
- */
 const extractDelivery = (obj) => {
     const value = pickFirst(obj, PRODUCT_KEYS.delivery);
     if (value === null || value === undefined) return null;
@@ -151,11 +105,6 @@ const extractDelivery = (obj) => {
     return String(value).trim();
 };
 
-/**
- * Extract discount label or percentage.
- * @param {Object|null} obj - Product-like object.
- * @returns {string|null} Discount label or null.
- */
 const extractDiscount = (obj) => {
     const value = pickFirst(obj, PRODUCT_KEYS.discount);
     if (value === null || value === undefined) return null;
@@ -164,11 +113,54 @@ const extractDiscount = (obj) => {
     return null;
 };
 
-/**
- * Normalize a raw product-like object to a consistent schema.
- * @param {Object|null} raw - Raw product object.
- * @returns {Object} Normalized product object.
- */
+const scoreProduct = (obj) => {
+    let score = 0;
+    if (extractName(obj)) score += 2;
+    if (extractPrice(obj) !== null) score += 2;
+    if (extractOriginalPrice(obj) !== null) score += 1;
+    if (extractImage(obj)) score += 1;
+    if (extractAvailability(obj)) score += 1;
+    if (extractProductId(obj)) score += 1;
+    return score;
+};
+
+const findProductArrays = (root) => {
+    const candidates = [];
+    const seen = new Set();
+
+    const walk = (node, depth = 0) => {
+        if (!node || typeof node !== 'object') return;
+        if (seen.has(node) || depth > 7) return;
+        seen.add(node);
+
+        if (Array.isArray(node)) {
+            if (node.length > 0 && node.every(item => item && typeof item === 'object' && !Array.isArray(item))) {
+                const sample = node.slice(0, Math.min(25, node.length));
+                const avgScore = sample.reduce((sum, item) => sum + scoreProduct(item), 0) / sample.length;
+                if (avgScore >= 3) {
+                    candidates.push({ items: node, score: avgScore, size: node.length });
+                }
+            }
+            for (const item of node) walk(item, depth + 1);
+            return;
+        }
+
+        for (const key of Object.keys(node)) {
+            walk(node[key], depth + 1);
+        }
+    };
+
+    walk(root, 0);
+    if (candidates.length === 0) return null;
+
+    candidates.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return b.size - a.size;
+    });
+
+    return candidates[0].items;
+};
+
 const normalizeProduct = (raw) => {
     const base = raw && typeof raw === 'object' && raw.product && typeof raw.product === 'object'
         ? raw.product
@@ -216,11 +208,6 @@ const normalizeProduct = (raw) => {
     };
 };
 
-/**
- * Extract and normalize product-like objects from arbitrary payloads.
- * @param {Array<Object>} payloads - Payloads containing product data.
- * @returns {Array<Object>} Normalized product list.
- */
 const extractProductsFromPayloads = (payloads = []) => {
     const rawProducts = [];
     const seenObjects = new Set();
@@ -265,9 +252,10 @@ const extractProductsFromPayloads = (payloads = []) => {
 
         const price = extractPrice(base) ?? extractPrice(obj);
         const mrp = extractOriginalPrice(base) ?? extractOriginalPrice(obj);
+        const productId = extractProductId(base) ?? extractProductId(obj);
 
-        // Require pricing signals to avoid category tiles with ids but no prices.
-        return price !== null || mrp !== null;
+        // Require at least one strong product signal (price, mrp, or id)
+        return price !== null || mrp !== null || productId !== null;
     };
 
     const pushProduct = (obj) => {
@@ -335,7 +323,7 @@ const extractProductsFromPayloads = (payloads = []) => {
     for (const raw of rawProducts) {
         const n = normalizeProduct(raw);
         if (!n.product_name) continue;
-        if (n.price === null && n.original_price === null) continue;
+        if (n.price === null && n.original_price === null && !n.product_url) continue;
         const key = `${n.product_name}|${n.price ?? ''}|${n.original_price ?? ''}|${n.product_image ?? ''}|${n.product_url ?? ''}`;
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
@@ -344,67 +332,6 @@ const extractProductsFromPayloads = (payloads = []) => {
     return normalized;
 };
 
-/**
- * Build normalized products from Blinkit Redux store data.
- * @param {Object|null} reduxStoreData - Redux store search data.
- * @returns {Array<Object>} Normalized product list.
- */
-const buildProductsFromReduxData = (reduxStoreData) => {
-    if (!reduxStoreData?.snippets) return [];
-    const snippets = reduxStoreData.snippets.filter((snippet) => {
-        if (snippet.widget_type !== 'product_card_snippet_type_2') return false;
-        if (!snippet.data || !snippet.data.name) return false;
-        const name = snippet.data.name?.text || snippet.data.name;
-        if (!name || typeof name !== 'string' || name.trim().length === 0) return false;
-        return true;
-    });
-
-    return snippets.map((snippet) => {
-        const data = snippet.data || {};
-        const tracking = snippet.tracking || {};
-        const cartItem = data.atc_action?.add_to_cart?.cart_item || {};
-        const impression = tracking.impression_map || {};
-
-        const price = cartItem.price || impression.price || toNumber(data.price?.text) || null;
-        const mrp = cartItem.mrp || impression.mrp || toNumber(data.mrp?.text) || null;
-        const name = data.name?.text || data.name || cartItem.product_name || null;
-        const id = cartItem.product_id || impression.product_id || data.product_id || null;
-
-        let discount = data.discount?.text || null;
-        if (!discount && price && mrp && mrp > price) {
-            const off = Math.round(((mrp - price) / mrp) * 100);
-            if (off > 0) discount = `${off}% OFF`;
-        }
-
-        let productUrl = null;
-        if (id) {
-            const slug = name ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'product';
-            productUrl = `https://blinkit.com/prn/${slug}/prid/${id}`;
-        }
-
-        const isSoldOut = data.is_sold_out || false;
-        const inventory = cartItem.inventory ?? impression.inventory ?? 0;
-        const availability = (!isSoldOut && inventory > 0) ? 'In Stock' : 'Out of Stock';
-
-        const deliveryTime = data.eta_tag?.text || data.delivery_time?.text || null;
-
-        return {
-            product_name: name,
-            price,
-            original_price: mrp,
-            product_image: data.image?.url || cartItem.image_url || null,
-            availability,
-            product_url: productUrl,
-            discount_percentage: discount,
-            delivery_time: deliveryTime,
-        };
-    }).filter((p) => p.product_name && (p.price !== null || p.original_price !== null));
-};
-
-/**
- * Actor entry point.
- * @returns {Promise<void>} Resolves when the Actor exits.
- */
 async function main() {
     try {
         const input = (await Actor.getInput()) || {};
@@ -435,7 +362,7 @@ async function main() {
         log.info(`Target results: ${RESULTS_WANTED === 0 ? 'unlimited' : RESULTS_WANTED}`);
         log.info(`Search URL: ${searchUrl}`);
 
-        // Create proxy configuration (residential recommended for Blinkit).
+        // Create proxy configuration (residential recommended for Blinkit)
         const proxyConfiguration = await Actor.createProxyConfiguration(proxyConfig || {
             useApifyProxy: true,
             apifyProxyGroups: ['RESIDENTIAL'],
@@ -497,11 +424,6 @@ async function main() {
         let totalScraped = 0;
         const seenProductKeys = new Set();
 
-        /**
-         * Create a stable dedupe key for product records.
-         * @param {Object} product - Normalized product object.
-         * @returns {string|null} Dedupe key or null.
-         */
         const makeProductKey = (product) => {
             if (!product) return null;
             const name = product.product_name || product.name || '';
@@ -513,11 +435,6 @@ async function main() {
             return key || null;
         };
 
-        /**
-         * Count visible product cards using known selectors.
-         * @param {import('playwright').Page} page - Playwright page.
-         * @returns {Promise<number>} Count of products.
-         */
         const countProductsOnPage = async (page) => {
             for (const selector of SELECTORS.productContainer) {
                 try {
@@ -530,11 +447,6 @@ async function main() {
             return 0;
         };
 
-        /**
-         * Get product count from Blinkit Redux store if available.
-         * @param {import('playwright').Page} page - Playwright page.
-         * @returns {Promise<number>} Count from Redux store.
-         */
         const getReduxProductCount = async (page) => {
             try {
                 return await page.evaluate(() => {
@@ -747,14 +659,72 @@ async function main() {
                                     return state.ui.search.searchProductBffData;
                                 }
                             }
-                        } catch {
-                            // ignore extraction errors in browser context
+                        } catch (e) {
+                            console.log('Redux store extraction failed:', e);
                         }
                         return null;
                     });
 
                     if (reduxStoreData && reduxStoreData.snippets) {
-                        const products = buildProductsFromReduxData(reduxStoreData);
+                        // The snippets array contains product cards, ads, and other widgets
+                        // Filter to only include actual product snippets
+                        const snippets = reduxStoreData.snippets.filter(s => {
+                            // Only include product_card_snippet_type_2 (actual products)
+                            // Exclude ads_vertical_banner, category widgets, etc.
+                            if (s.widget_type !== 'product_card_snippet_type_2') return false;
+                            if (!s.data || !s.data.name) return false;
+                            // Ensure it has a valid name (not [object Object] or undefined)
+                            const name = s.data.name?.text || s.data.name;
+                            if (!name || typeof name !== 'string' || name.trim().length === 0) return false;
+                            return true;
+                        });
+                        const products = snippets.map(snippet => {
+                            const data = snippet.data || {};
+                            const tracking = snippet.tracking || {};
+                            const cartItem = data.atc_action?.add_to_cart?.cart_item || {};
+                            const impression = tracking.impression_map || {};
+
+                            // Extract values with fallbacks
+                            const price = cartItem.price || impression.price || toNumber(data.price?.text) || null;
+                            const mrp = cartItem.mrp || impression.mrp || toNumber(data.mrp?.text) || null;
+                            const name = data.name?.text || data.name || cartItem.product_name || null;
+                            const id = cartItem.product_id || impression.product_id || data.product_id || null;
+
+                            // Calculate discount if missing
+                            let discount = data.discount?.text || null;
+                            if (!discount && price && mrp && mrp > price) {
+                                const off = Math.round(((mrp - price) / mrp) * 100);
+                                if (off > 0) discount = `${off}% OFF`;
+                            }
+
+                            // Construct URL
+                            let productUrl = null;
+                            if (id) {
+                                // Construct a valid Blinkit web URL
+                                const slug = name ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'product';
+                                productUrl = `https://blinkit.com/prn/${slug}/prid/${id}`;
+                            }
+
+                            // Availability check
+                            const isSoldOut = data.is_sold_out || false;
+                            const inventory = cartItem.inventory ?? impression.inventory ?? 0;
+                            const availability = (!isSoldOut && inventory > 0) ? 'In Stock' : 'Out of Stock';
+
+                            // Delivery time from tag
+                            const deliveryTime = data.eta_tag?.text || data.delivery_time?.text || null;
+
+                            return {
+                                product_name: name,
+                                price: price,
+                                original_price: mrp,
+                                product_image: data.image?.url || cartItem.image_url || null,
+                                availability: availability,
+                                product_url: productUrl,
+                                discount_percentage: discount,
+                                delivery_time: deliveryTime
+                            };
+                        }).filter(p => p.product_name);
+
                         if (products.length > 0) {
                             const done = await pushResults(products, 'Redux Store');
                             if (done) return;
@@ -770,8 +740,8 @@ async function main() {
                                 const json = JSON.parse(nextDataScript.textContent);
                                 return json || null;
                             }
-                        } catch {
-                            // ignore extraction errors in browser context
+                        } catch (e) {
+                            console.log('__NEXT_DATA__ extraction failed:', e);
                         }
                         return null;
                     });
@@ -800,7 +770,6 @@ async function main() {
                             break;
                         }
 
-                        // Scroll to trigger lazy loading on the search results page.
                         await page.evaluate(() => {
                             window.scrollTo(0, document.body.scrollHeight);
                         });
@@ -810,7 +779,6 @@ async function main() {
                         const currentCount = await countProductsOnPage(page);
                         const currentReduxCount = await getReduxProductCount(page);
 
-                        // Stop when height and product counts stop growing across multiple rounds.
                         const grew = currentHeight > previousHeight || currentCount > previousCount || currentReduxCount > previousReduxCount;
                         if (!grew) {
                             stableRounds += 1;
@@ -827,7 +795,6 @@ async function main() {
                     if (stableRounds >= maxStableRounds) {
                         log.info('Reached end of page or no new products loaded');
                     }
-                    // TODO: Switch to API pagination if Blinkit exposes a stable search cursor.
 
                     log.info('Extracting product data from HTML...');
 
@@ -840,14 +807,62 @@ async function main() {
                                     return state.ui.search.searchProductBffData;
                                 }
                             }
-                        } catch {
-                            // ignore extraction errors in browser context
+                        } catch (e) {
+                            console.log('Redux store extraction failed:', e);
                         }
                         return null;
                     });
 
                     if (reduxAfterScroll && reduxAfterScroll.snippets) {
-                        const products = buildProductsFromReduxData(reduxAfterScroll);
+                        const snippets = reduxAfterScroll.snippets.filter(s => {
+                            if (s.widget_type !== 'product_card_snippet_type_2') return false;
+                            if (!s.data || !s.data.name) return false;
+                            const name = s.data.name?.text || s.data.name;
+                            if (!name || typeof name !== 'string' || name.trim().length === 0) return false;
+                            return true;
+                        });
+
+                        const products = snippets.map(snippet => {
+                            const data = snippet.data || {};
+                            const tracking = snippet.tracking || {};
+                            const cartItem = data.atc_action?.add_to_cart?.cart_item || {};
+                            const impression = tracking.impression_map || {};
+
+                            const price = cartItem.price || impression.price || toNumber(data.price?.text) || null;
+                            const mrp = cartItem.mrp || impression.mrp || toNumber(data.mrp?.text) || null;
+                            const name = data.name?.text || data.name || cartItem.product_name || null;
+                            const id = cartItem.product_id || impression.product_id || data.product_id || null;
+
+                            let discount = data.discount?.text || null;
+                            if (!discount && price && mrp && mrp > price) {
+                                const off = Math.round(((mrp - price) / mrp) * 100);
+                                if (off > 0) discount = `${off}% OFF`;
+                            }
+
+                            let productUrl = null;
+                            if (id) {
+                                const slug = name ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'product';
+                                productUrl = `https://blinkit.com/prn/${slug}/prid/${id}`;
+                            }
+
+                            const isSoldOut = data.is_sold_out || false;
+                            const inventory = cartItem.inventory ?? impression.inventory ?? 0;
+                            const availability = (!isSoldOut && inventory > 0) ? 'In Stock' : 'Out of Stock';
+
+                            const deliveryTime = data.eta_tag?.text || data.delivery_time?.text || null;
+
+                            return {
+                                product_name: name,
+                                price: price,
+                                original_price: mrp,
+                                product_image: data.image?.url || cartItem.image_url || null,
+                                availability: availability,
+                                product_url: productUrl,
+                                discount_percentage: discount,
+                                delivery_time: deliveryTime
+                            };
+                        }).filter(p => p.product_name);
+
                         if (products.length > 0) {
                             const done = await pushResults(products, 'Redux Store (after scroll)');
                             if (done) return;
@@ -876,10 +891,14 @@ async function main() {
                         let productElements = [];
                         for (const containerSelector of selectors.productContainer) {
                             productElements = Array.from(document.querySelectorAll(containerSelector));
-                            if (productElements.length > 0) break;
+                            if (productElements.length > 0) {
+                                console.log(`Found ${productElements.length} products with selector: ${containerSelector}`);
+                                break;
+                            }
                         }
 
                         if (productElements.length === 0) {
+                            console.log('No products found with any selector');
                             return [];
                         }
 

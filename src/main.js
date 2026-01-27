@@ -573,14 +573,48 @@ async function main() {
                         const snippets = reduxStoreData.snippets.filter(s => s.data && s.data.name);
                         const products = snippets.map(snippet => {
                             const data = snippet.data || {};
+                            const tracking = snippet.tracking || {};
+                            const cartItem = data.atc_action?.add_to_cart?.cart_item || {};
+                            const impression = tracking.impression_map || {};
+
+                            // Extract values with fallbacks
+                            const price = cartItem.price || impression.price || toNumber(data.price?.text) || null;
+                            const mrp = cartItem.mrp || impression.mrp || toNumber(data.mrp?.text) || null;
+                            const name = data.name?.text || data.name || cartItem.product_name || null;
+                            const id = cartItem.product_id || impression.product_id || data.product_id || null;
+
+                            // Calculate discount if missing
+                            let discount = data.discount?.text || null;
+                            if (!discount && price && mrp && mrp > price) {
+                                const off = Math.round(((mrp - price) / mrp) * 100);
+                                if (off > 0) discount = `${off}% OFF`;
+                            }
+
+                            // Construct URL
+                            let productUrl = null;
+                            if (id) {
+                                // Construct a valid Blinkit web URL
+                                const slug = name ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'product';
+                                productUrl = `https://blinkit.com/prn/${slug}/prid/${id}`;
+                            }
+
+                            // Availability check
+                            const isSoldOut = data.is_sold_out || false;
+                            const inventory = cartItem.inventory ?? impression.inventory ?? 0;
+                            const availability = (!isSoldOut && inventory > 0) ? 'In Stock' : 'Out of Stock';
+
+                            // Delivery time from tag
+                            const deliveryTime = data.eta_tag?.text || data.delivery_time?.text || null;
+
                             return {
-                                product_name: data.name?.text || data.name || null,
-                                price: data.price?.text || data.price || null,
-                                original_price: data.unit?.text || data.unit || null, // Unit info
-                                product_image: data.image?.url || data.image || null,
-                                availability: 'In Stock',
-                                product_url: data.permalink || null,
-                                discount_percentage: data.discount?.text || null,
+                                product_name: name,
+                                price: price,
+                                original_price: mrp,
+                                product_image: data.image?.url || cartItem.image_url || null,
+                                availability: availability,
+                                product_url: productUrl,
+                                discount_percentage: discount,
+                                delivery_time: deliveryTime
                             };
                         }).filter(p => p.product_name);
 

@@ -178,18 +178,31 @@ const normalizeProduct = (raw) => {
 };
 
 const extractProductsFromPayloads = (payloads = []) => {
-    const candidates = [];
+    const allProducts = [];
     for (const payload of payloads) {
-        const items = findProductArrays(payload);
-        if (items && items.length > 0) {
-            candidates.push(items);
+        if (!payload || typeof payload !== 'object') continue;
+
+        // 1. Try Blinkit specific widget structure (highest priority)
+        if (Array.isArray(payload.widgets)) {
+            for (const widget of payload.widgets) {
+                if ((widget.type === 'listing_container' || widget.type === 'product_grid') && 
+                    widget.data && Array.isArray(widget.data.objects)) {
+                    allProducts.push(...widget.data.objects.map(normalizeProduct));
+                }
+            }
+        }
+        
+        // 2. Fallback to generic array discovery if specific structure didn't find much
+        if (allProducts.length === 0) {
+            const items = findProductArrays(payload);
+            if (items && items.length > 0) {
+                allProducts.push(...items.map(normalizeProduct));
+            }
         }
     }
 
-    if (candidates.length === 0) return [];
-
-    const best = candidates.reduce((prev, curr) => (curr.length > prev.length ? curr : prev), candidates[0]);
-    return best.map(normalizeProduct).filter(p => p.product_name);
+    // Deduplicate by name if needed, but usually not necessary for a single page
+    return allProducts.filter(p => p && p.product_name);
 };
 
 async function main() {
@@ -369,7 +382,7 @@ async function main() {
                         }
                     }
 
-                    // Add realistic headers
+                    // Add realistic headers and Blinkit specific markers
                     await page.setExtraHTTPHeaders({
                         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                         'accept-language': 'en-US,en;q=0.9',
@@ -378,6 +391,7 @@ async function main() {
                         'sec-fetch-mode': 'navigate',
                         'sec-fetch-site': 'none',
                         'upgrade-insecure-requests': '1',
+                        'app_client': 'web',
                     });
 
                     // Human-like delay before navigation
@@ -484,6 +498,31 @@ async function main() {
                     // Wait for dynamic content with timeout
                     await page.waitForTimeout(3000);
 
+                    // PRIORITY 0: Try to extract window.grofers.PRELOADED_STATE
+                    log.info('Checking for PRELOADED_STATE...');
+                    const preloadedState = await page.evaluate(() => {
+                        return window.grofers?.PRELOADED_STATE || null;
+                    });
+
+                    if (preloadedState) {
+                        const extracted = extractProductsFromPayloads([preloadedState]);
+                        if (extracted.length > 0) {
+                            log.info(`Found ${extracted.length} products in PRELOADED_STATE`);
+                            const limit = RESULTS_WANTED > 0 ? RESULTS_WANTED : extracted.length;
+                            const limitedProducts = extracted.slice(0, limit).map(p => ({
+                                ...p,
+                                search_query: searchQueryForOutput,
+                                url: request.url,
+                                scrapedAt: new Date().toISOString(),
+                            }));
+
+                            await Dataset.pushData(limitedProducts);
+                            totalScraped += limitedProducts.length;
+                            log.info(`Extracted ${limitedProducts.length} products from PRELOADED_STATE`);
+                            if (totalScraped >= RESULTS_WANTED && RESULTS_WANTED > 0) return;
+                        }
+                    }
+
                     // PRIORITY 1: Try to extract __NEXT_DATA__ (Next.js)
                     log.info('Checking for __NEXT_DATA__...');
                     const nextDataProducts = await page.evaluate(() => {
@@ -514,7 +553,7 @@ async function main() {
                             await Dataset.pushData(limitedProducts);
                             totalScraped += limitedProducts.length;
                             log.info(`Extracted ${limitedProducts.length} products from __NEXT_DATA__`);
-                            return;
+                            if (totalScraped >= RESULTS_WANTED && RESULTS_WANTED > 0) return;
                         }
                     }
 

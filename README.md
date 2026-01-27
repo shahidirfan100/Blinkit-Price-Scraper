@@ -44,19 +44,17 @@ Gather pricing data for consumer behavior studies and shopping trend analysis.
 ---
 
 ## Data Extraction Methods
+The scraper uses a multi-layered approach to ensure high data quality and reliability:
 
-The scraper uses Playwright browser automation for reliable data extraction:
+1. **Preloaded State Extraction** — Instantly captures data from `window.grofers.PRELOADED_STATE` before the page fully renders.
+2. **Direct API Capture** — Intercepts JSON responses from Blinkit's internal search APIs.
+3. **Next.js Data** — Extracts from `__NEXT_DATA__` script tags if present.
+4. **Smart DOM Parsing** — As a fallback, uses Playwright to parse the rendered HTML with redundant selectors.
 
-This ensures comprehensive review collection even when page structures change. |
+This hybrid approach ensures high speed and resilience against UI changes.
 
 ---
 ## Output Data
-
-1. **Browser Automation** — Uses Playwright with Chrome fingerprinting for dynamic content
-2. **Stealth Features** — Anti-detection measures to avoid blocks
-3. **Smart Scrolling** — Automatically scrolls to load all products
-4. **Resource Blocking** — Blocks unnecessary resources for faster scraping
-
 Each product in the dataset contains:
 
 | Field | Type | Description |

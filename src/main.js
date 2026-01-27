@@ -178,31 +178,67 @@ const normalizeProduct = (raw) => {
 };
 
 const extractProductsFromPayloads = (payloads = []) => {
-    const allProducts = [];
+    const rawProducts = [];
+    const seenObjects = new Set();
+
+    const pushProduct = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        if (seenObjects.has(obj)) return;
+        seenObjects.add(obj);
+        rawProducts.push(obj);
+    };
+
+    const collectFromMap = (maybeMap) => {
+        if (!maybeMap || typeof maybeMap !== 'object') return;
+        if (Array.isArray(maybeMap)) {
+            maybeMap.forEach(pushProduct);
+            return;
+        }
+        Object.values(maybeMap).forEach(pushProduct);
+    };
+
+    const traverse = (node, depth = 0) => {
+        if (!node || typeof node !== 'object' || depth > 8) return;
+
+        if (Array.isArray(node)) {
+            if (node.length > 0 && node.every(item => item && typeof item === 'object' && !Array.isArray(item))) {
+                node.forEach(pushProduct);
+            }
+            node.forEach(child => traverse(child, depth + 1));
+            return;
+        }
+
+        // Blinkit-specific structures
+        if (node.entities && node.entities.products) collectFromMap(node.entities.products);
+        if (node.products) collectFromMap(node.products);
+        if (node.data && node.data.products) collectFromMap(node.data.products);
+        if (node.product_grid && node.product_grid.products) collectFromMap(node.product_grid.products);
+        if (node.widgets && Array.isArray(node.widgets)) node.widgets.forEach(pushProduct);
+        if (node.widget && typeof node.widget === 'object') pushProduct(node.widget);
+        if (node.items && Array.isArray(node.items)) node.items.forEach(pushProduct);
+
+        for (const key of Object.keys(node)) {
+            traverse(node[key], depth + 1);
+        }
+    };
+
     for (const payload of payloads) {
         if (!payload || typeof payload !== 'object') continue;
-
-        // 1. Try Blinkit specific widget structure (highest priority)
-        if (Array.isArray(payload.widgets)) {
-            for (const widget of payload.widgets) {
-                if ((widget.type === 'listing_container' || widget.type === 'product_grid') &&
-                    widget.data && Array.isArray(widget.data.objects)) {
-                    allProducts.push(...widget.data.objects.map(normalizeProduct));
-                }
-            }
-        }
-
-        // 2. Fallback to generic array discovery if specific structure didn't find much
-        if (allProducts.length === 0) {
-            const items = findProductArrays(payload);
-            if (items && items.length > 0) {
-                allProducts.push(...items.map(normalizeProduct));
-            }
-        }
+        traverse(payload, 0);
     }
 
-    // Deduplicate by name if needed, but usually not necessary for a single page
-    return allProducts.filter(p => p && p.product_name);
+    // Normalize and dedupe
+    const seenKeys = new Set();
+    const normalized = [];
+    for (const raw of rawProducts) {
+        const n = normalizeProduct(raw);
+        if (!n.product_name) continue;
+        const key = `${n.product_name}|${n.price ?? ''}|${n.original_price ?? ''}|${n.product_image ?? ''}|${n.product_url ?? ''}`;
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        normalized.push(n);
+    }
+    return normalized;
 };
 
 async function main() {
@@ -338,7 +374,6 @@ async function main() {
         const crawler = new PlaywrightCrawler({
             proxyConfiguration,
             maxRequestRetries: 5,
-            maxRequestRetries: 5,
             maxConcurrency: 1, // Reduced to 1 to minimize blocking risk
             requestHandlerTimeoutSecs: 300, // Increased for safety
             navigationTimeoutSecs: 120, // Increased to handle slow proxies
@@ -460,6 +495,23 @@ async function main() {
                 try {
                     const responsePayloads = [];
                     const responseUrls = new Set();
+                    const pushResults = async (products, label) => {
+                        if (!products || products.length === 0) return false;
+                        const remaining = RESULTS_WANTED > 0 ? RESULTS_WANTED - totalScraped : products.length;
+                        if (remaining <= 0) return true;
+                        const limited = RESULTS_WANTED > 0 ? products.slice(0, remaining) : products;
+                        const enriched = limited.map(p => ({
+                            ...p,
+                            search_query: searchQueryForOutput,
+                            url: request.url,
+                            scrapedAt: new Date().toISOString(),
+                        }));
+                        await Dataset.pushData(enriched);
+                        totalScraped += enriched.length;
+                        log.info(`Extracted ${enriched.length} products from ${label}`);
+                        if (RESULTS_WANTED === 0) return true; // stop after a successful source when unlimited
+                        return totalScraped >= RESULTS_WANTED;
+                    };
 
                     const responseListener = async (response) => {
                         const url = response.url();
@@ -499,28 +551,27 @@ async function main() {
                     // Wait for dynamic content with timeout
                     await page.waitForTimeout(3000);
 
-                    // PRIORITY 0: Try to extract window.grofers.PRELOADED_STATE
+                    // PRIORITY 0: Try to extract PRELOADED_STATE (Blinkit / Grofers)
                     log.info('Checking for PRELOADED_STATE...');
                     const preloadedState = await page.evaluate(() => {
-                        return window.grofers?.PRELOADED_STATE || null;
+                        const state = (window.grofers && window.grofers.PRELOADED_STATE) ||
+                                      window.PRELOADED_STATE ||
+                                      window.__PRELOADED_STATE__ ||
+                                      window.__INITIAL_STATE__ ||
+                                      null;
+                        if (!state) return null;
+                        try {
+                            return JSON.parse(JSON.stringify(state));
+                        } catch {
+                            return state;
+                        }
                     });
 
                     if (preloadedState) {
                         const extracted = extractProductsFromPayloads([preloadedState]);
                         if (extracted.length > 0) {
-                            log.info(`Found ${extracted.length} products in PRELOADED_STATE`);
-                            const limit = RESULTS_WANTED > 0 ? RESULTS_WANTED : extracted.length;
-                            const limitedProducts = extracted.slice(0, limit).map(p => ({
-                                ...p,
-                                search_query: searchQueryForOutput,
-                                url: request.url,
-                                scrapedAt: new Date().toISOString(),
-                            }));
-
-                            await Dataset.pushData(limitedProducts);
-                            totalScraped += limitedProducts.length;
-                            log.info(`Extracted ${limitedProducts.length} products from PRELOADED_STATE`);
-                            if (totalScraped >= RESULTS_WANTED && RESULTS_WANTED > 0) return;
+                            const done = await pushResults(extracted, 'PRELOADED_STATE');
+                            if (done) return;
                         }
                     }
 
@@ -542,19 +593,8 @@ async function main() {
                     if (nextDataProducts) {
                         const extracted = extractProductsFromPayloads([nextDataProducts]);
                         if (extracted.length > 0) {
-                            log.info(`Found ${extracted.length} products in __NEXT_DATA__ payload`);
-                            const limit = RESULTS_WANTED > 0 ? RESULTS_WANTED : extracted.length;
-                            const limitedProducts = extracted.slice(0, limit).map(p => ({
-                                ...p,
-                                search_query: searchQueryForOutput,
-                                url: request.url,
-                                scrapedAt: new Date().toISOString(),
-                            }));
-
-                            await Dataset.pushData(limitedProducts);
-                            totalScraped += limitedProducts.length;
-                            log.info(`Extracted ${limitedProducts.length} products from __NEXT_DATA__`);
-                            if (totalScraped >= RESULTS_WANTED && RESULTS_WANTED > 0) return;
+                            const done = await pushResults(extracted, '__NEXT_DATA__');
+                            if (done) return;
                         }
                     }
 
@@ -594,18 +634,8 @@ async function main() {
                     // PRIORITY 3: Try captured JSON responses
                     const networkProducts = extractProductsFromPayloads(responsePayloads);
                     if (networkProducts.length > 0) {
-                        const limit = RESULTS_WANTED > 0 ? RESULTS_WANTED : networkProducts.length;
-                        const limitedProducts = networkProducts.slice(0, limit).map(p => ({
-                            ...p,
-                            search_query: searchQueryForOutput,
-                            url: request.url,
-                            scrapedAt: new Date().toISOString(),
-                        }));
-
-                        await Dataset.pushData(limitedProducts);
-                        totalScraped += limitedProducts.length;
-                        log.info(`Extracted ${limitedProducts.length} products from network JSON`);
-                        return;
+                        const done = await pushResults(networkProducts, 'network JSON');
+                        if (done) return;
                     }
 
                     // PRIORITY 3: Extract using browser context with fallback selectors
@@ -699,19 +729,9 @@ async function main() {
                     }
 
                     // Add search query and URL to each product
-                    const enrichedProducts = products.map(p => ({
-                        ...p,
-                        search_query: searchQueryForOutput,
-                        url: request.url
-                    }));
-
-                    log.info(`Extracted ${enrichedProducts.length} products`);
-                    totalScraped += enrichedProducts.length;
-
-                    // Save to dataset
-                    if (enrichedProducts.length > 0) {
-                        await Dataset.pushData(enrichedProducts);
-                    }
+                    const enrichedProducts = products;
+                    const done = await pushResults(enrichedProducts, 'DOM HTML');
+                    if (done) return;
 
                 } catch (error) {
                     log.exception(error, `Error processing ${request.url}`);

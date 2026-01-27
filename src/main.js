@@ -185,13 +185,13 @@ const extractProductsFromPayloads = (payloads = []) => {
         // 1. Try Blinkit specific widget structure (highest priority)
         if (Array.isArray(payload.widgets)) {
             for (const widget of payload.widgets) {
-                if ((widget.type === 'listing_container' || widget.type === 'product_grid') && 
+                if ((widget.type === 'listing_container' || widget.type === 'product_grid') &&
                     widget.data && Array.isArray(widget.data.objects)) {
                     allProducts.push(...widget.data.objects.map(normalizeProduct));
                 }
             }
         }
-        
+
         // 2. Fallback to generic array discovery if specific structure didn't find much
         if (allProducts.length === 0) {
             const items = findProductArrays(payload);
@@ -218,8 +218,8 @@ async function main() {
             setGeolocation = true,
         } = input;
 
-        const RESULTS_WANTED = Number.isFinite(+RESULTS_WANTED_RAW) && +RESULTS_WANTED_RAW > 0 
-            ? +RESULTS_WANTED_RAW 
+        const RESULTS_WANTED = Number.isFinite(+RESULTS_WANTED_RAW) && +RESULTS_WANTED_RAW > 0
+            ? +RESULTS_WANTED_RAW
             : 0; // 0 means unlimited
 
         const searchUrlInput = typeof search_url === 'string' ? search_url.trim() : '';
@@ -338,10 +338,19 @@ async function main() {
         const crawler = new PlaywrightCrawler({
             proxyConfiguration,
             maxRequestRetries: 5,
-            maxConcurrency: 2, // Lower for better stealth
-            requestHandlerTimeoutSecs: 180,
-            navigationTimeoutSecs: 60,
-            useSessionPool: true, // Better session management
+            maxRequestRetries: 5,
+            maxConcurrency: 1, // Reduced to 1 to minimize blocking risk
+            requestHandlerTimeoutSecs: 300, // Increased for safety
+            navigationTimeoutSecs: 120, // Increased to handle slow proxies
+            useSessionPool: true,
+
+            // Custom navigation to be more resilient
+            gotoFunction: async ({ page, request }) => {
+                return page.goto(request.url, {
+                    timeout: 120000,
+                    waitUntil: 'domcontentloaded' // Faster than 'load', sufficient for SPA extraction
+                });
+            },
             sessionPoolOptions: {
                 maxPoolSize: 50,
                 sessionOptions: {
@@ -417,29 +426,29 @@ async function main() {
                     // Stealth configurations
                     await page.addInitScript(() => {
                         // Hide webdriver
-                        Object.defineProperty(navigator, 'webdriver', { 
+                        Object.defineProperty(navigator, 'webdriver', {
                             get: () => false,
-                            configurable: true 
+                            configurable: true
                         });
-                        
+
                         // Add chrome object
-                        window.chrome = { 
+                        window.chrome = {
                             runtime: {},
-                            loadTimes: () => {},
-                            csi: () => {},
+                            loadTimes: () => { },
+                            csi: () => { },
                             app: {}
                         };
-                        
+
                         // Add realistic plugins
-                        Object.defineProperty(navigator, 'plugins', { 
+                        Object.defineProperty(navigator, 'plugins', {
                             get: () => [1, 2, 3, 4, 5],
-                            configurable: true 
+                            configurable: true
                         });
-                        
+
                         // Add realistic languages
-                        Object.defineProperty(navigator, 'languages', { 
+                        Object.defineProperty(navigator, 'languages', {
                             get: () => ['en-US', 'en'],
-                            configurable: true 
+                            configurable: true
                         });
 
                         // Override permissions
@@ -481,13 +490,13 @@ async function main() {
 
                     // Wait for page to load
                     await page.waitForLoadState('domcontentloaded');
-                    
+
                     // Check for blocking
                     const title = await page.title();
                     log.info(`Page title: ${title}`);
-                    
-                    if (title.includes('Access Denied') || 
-                        title.includes('Captcha') || 
+
+                    if (title.includes('Access Denied') ||
+                        title.includes('Captcha') ||
                         title.includes('Robot') ||
                         title.includes('Blocked')) {
                         log.error('Page blocked! Need better proxies or stealth');
@@ -667,12 +676,12 @@ async function main() {
                             // Check availability
                             const outOfStockEl = findWithSelectors(el, selectors.outOfStock);
                             const addButtonEl = findWithSelectors(el, selectors.addButton);
-                            const availability = outOfStockEl ? 'Out of Stock' : 
-                                               (addButtonEl ? 'In Stock' : 'Unknown');
+                            const availability = outOfStockEl ? 'Out of Stock' :
+                                (addButtonEl ? 'In Stock' : 'Unknown');
 
                             // Extract delivery time (global or per-product)
-                            const deliveryTimeEl = findWithSelectors(el, selectors.deliveryTime) || 
-                                                  findWithSelectors(document, selectors.deliveryTime);
+                            const deliveryTimeEl = findWithSelectors(el, selectors.deliveryTime) ||
+                                findWithSelectors(document, selectors.deliveryTime);
                             const deliveryTime = deliveryTimeEl ? deliveryTimeEl.textContent.trim() : null;
 
                             return {

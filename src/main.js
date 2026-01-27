@@ -551,26 +551,41 @@ async function main() {
                     // Wait for dynamic content with timeout
                     await page.waitForTimeout(3000);
 
-                    // PRIORITY 0: Try to extract PRELOADED_STATE (Blinkit / Grofers)
-                    log.info('Checking for PRELOADED_STATE...');
-                    const preloadedState = await page.evaluate(() => {
-                        const state = (window.grofers && window.grofers.PRELOADED_STATE) ||
-                                      window.PRELOADED_STATE ||
-                                      window.__PRELOADED_STATE__ ||
-                                      window.__INITIAL_STATE__ ||
-                                      null;
-                        if (!state) return null;
+                    // PRIORITY 0: Try to extract from Redux store (live Blinkit state)
+                    log.info('Checking for Redux store...');
+                    const reduxStoreData = await page.evaluate(() => {
                         try {
-                            return JSON.parse(JSON.stringify(state));
-                        } catch {
-                            return state;
+                            if (window.__reduxStore__) {
+                                const state = window.__reduxStore__.getState();
+                                // Extract the search snippets which contain product data
+                                if (state.ui && state.ui.search && state.ui.search.searchProductBffData) {
+                                    return state.ui.search.searchProductBffData;
+                                }
+                            }
+                        } catch (e) {
+                            console.log('Redux store extraction failed:', e);
                         }
+                        return null;
                     });
 
-                    if (preloadedState) {
-                        const extracted = extractProductsFromPayloads([preloadedState]);
-                        if (extracted.length > 0) {
-                            const done = await pushResults(extracted, 'PRELOADED_STATE');
+                    if (reduxStoreData && reduxStoreData.snippets) {
+                        // The snippets array contains product cards
+                        const snippets = reduxStoreData.snippets.filter(s => s.data && s.data.name);
+                        const products = snippets.map(snippet => {
+                            const data = snippet.data || {};
+                            return {
+                                product_name: data.name?.text || data.name || null,
+                                price: data.price?.text || data.price || null,
+                                original_price: data.unit?.text || data.unit || null, // Unit info
+                                product_image: data.image?.url || data.image || null,
+                                availability: 'In Stock',
+                                product_url: data.permalink || null,
+                                discount_percentage: data.discount?.text || null,
+                            };
+                        }).filter(p => p.product_name);
+
+                        if (products.length > 0) {
+                            const done = await pushResults(products, 'Redux Store');
                             if (done) return;
                         }
                     }

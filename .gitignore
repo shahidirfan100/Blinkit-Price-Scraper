@@ -1,0 +1,9 @@
+node_modules
+
+# Apify/Crawlee local runs
+storage/
+
+# Logs / OS
+*.log
+.DS_Store
+Thumbs.db

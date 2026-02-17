@@ -14,6 +14,13 @@ const PRODUCT_KEYS = {
     delivery: ['eta', 'delivery_time', 'deliveryTime'],
     url: ['product_url', 'productUrl', 'url', 'slug'],
     id: ['product_id', 'productId', 'id', 'sku', 'sku_id', 'item_id', 'variant_id'],
+    skuId: ['sku_id', 'skuId', 'variant_id', 'variantId', 'item_id', 'itemId'],
+    brand: ['brand', 'brand_name', 'brandName', 'brand_title', 'manufacturer', 'company'],
+    quantity: ['quantity', 'qty', 'pack_size', 'packSize', 'net_quantity', 'netQuantity', 'weight', 'volume', 'size'],
+    unit: ['unit', 'uom', 'unitOfMeasure', 'unit_of_measure', 'measurement_unit'],
+    rating: ['rating', 'avg_rating', 'average_rating', 'product_rating', 'productRating'],
+    ratingsCount: ['rating_count', 'ratings_count', 'reviews_count', 'review_count', 'ratingCount', 'ratingsCount'],
+    inventory: ['inventory', 'inventory_count', 'available_quantity', 'availableQuantity', 'stock_count', 'stockCount'],
 };
 
 const pickFirst = (obj, keys) => {
@@ -35,6 +42,20 @@ const toNumber = (value) => {
     if (!cleaned) return null;
     const num = Number.parseFloat(cleaned);
     return Number.isFinite(num) ? num : null;
+};
+
+const compactObject = (obj) => {
+    if (!obj || typeof obj !== 'object') return obj;
+    return Object.fromEntries(
+        Object.entries(obj).filter(([, value]) => {
+            if (value === null || value === undefined) return false;
+            if (typeof value === 'number') return Number.isFinite(value);
+            if (typeof value === 'string') return value.trim().length > 0;
+            if (Array.isArray(value)) return value.length > 0;
+            if (typeof value === 'object') return Object.keys(value).length > 0;
+            return true;
+        })
+    );
 };
 
 const extractImage = (obj) => {
@@ -84,7 +105,15 @@ const extractName = (obj) => {
     const value = pickFirst(obj, PRODUCT_KEYS.name);
     if (value === null || value === undefined) return null;
     if (typeof value === 'string') return value.trim();
-    return String(value).trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    if (typeof value === 'object') {
+        const nested = pickFirst(value, ['text', 'name', 'title', 'display_name', 'displayName']);
+        if (nested === null || nested === undefined) return null;
+        if (typeof nested === 'string') return nested.trim() || null;
+        if (typeof nested === 'number' && Number.isFinite(nested)) return String(nested);
+        return null;
+    }
+    return null;
 };
 
 const extractAvailability = (obj) => {
@@ -111,6 +140,71 @@ const extractDiscount = (obj) => {
     if (typeof value === 'string') return value.trim();
     if (typeof value === 'number') return `${value}%`;
     return null;
+};
+
+const extractBrand = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.brand);
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string') return value.trim() || null;
+    if (typeof value === 'object') {
+        const nested = pickFirst(value, ['name', 'title', 'text', 'display_name', 'displayName']);
+        if (typeof nested === 'string') return nested.trim() || null;
+    }
+    return String(value).trim() || null;
+};
+
+const extractQuantity = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.quantity);
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+        const str = value.trim();
+        if (!str) return null;
+        const num = toNumber(str);
+        return num ?? str;
+    }
+    if (typeof value === 'object') {
+        const nested = pickFirst(value, ['value', 'text', 'quantity', 'qty', 'amount']);
+        return extractQuantity({ quantity: nested });
+    }
+    return null;
+};
+
+const extractUnit = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.unit);
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string') return value.trim() || null;
+    if (typeof value === 'object') {
+        const nested = pickFirst(value, ['text', 'name', 'title', 'unit']);
+        if (typeof nested === 'string') return nested.trim() || null;
+    }
+    return String(value).trim() || null;
+};
+
+const extractRating = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.rating);
+    const num = toNumber(value);
+    return num === null ? null : num;
+};
+
+const extractRatingsCount = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.ratingsCount);
+    const num = toNumber(value);
+    return num === null ? null : Math.round(num);
+};
+
+const extractSkuId = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.skuId);
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const str = String(value).trim();
+    return str ? str : null;
+};
+
+const extractInventory = (obj) => {
+    const value = pickFirst(obj, PRODUCT_KEYS.inventory);
+    const num = toNumber(value);
+    return num === null ? null : Math.round(num);
 };
 
 const scoreProduct = (obj) => {
@@ -175,6 +269,13 @@ const normalizeProduct = (raw) => {
     const delivery = extractDelivery(base) ?? extractDelivery(raw);
     const productUrlRaw = pickFirst(base, PRODUCT_KEYS.url) || pickFirst(raw, PRODUCT_KEYS.url) || null;
     const productId = extractProductId(base) ?? extractProductId(raw);
+    const skuId = extractSkuId(base) ?? extractSkuId(raw);
+    const brand = extractBrand(base) ?? extractBrand(raw);
+    const quantity = extractQuantity(base) ?? extractQuantity(raw);
+    const unit = extractUnit(base) ?? extractUnit(raw);
+    const rating = extractRating(base) ?? extractRating(raw);
+    const ratingsCount = extractRatingsCount(base) ?? extractRatingsCount(raw);
+    const inventory = extractInventory(base) ?? extractInventory(raw);
 
     let productUrl = null;
     if (typeof productUrlRaw === 'string' && productUrlRaw.trim()) {
@@ -196,7 +297,7 @@ const normalizeProduct = (raw) => {
         productUrl = `https://blinkit.com/prn/${slug}/prid/${productId}`;
     }
 
-    return {
+    return compactObject({
         product_name: productName,
         price,
         original_price: originalPrice,
@@ -205,7 +306,15 @@ const normalizeProduct = (raw) => {
         availability: availability || 'Unknown',
         delivery_time: delivery,
         product_url: typeof productUrl === 'string' ? productUrl : null,
-    };
+        product_id: productId,
+        sku_id: skuId,
+        brand,
+        quantity,
+        unit,
+        rating,
+        ratings_count: ratingsCount,
+        inventory,
+    });
 };
 
 const extractProductsFromPayloads = (payloads = []) => {
@@ -252,10 +361,10 @@ const extractProductsFromPayloads = (payloads = []) => {
 
         const price = extractPrice(base) ?? extractPrice(obj);
         const mrp = extractOriginalPrice(base) ?? extractOriginalPrice(obj);
-        const productId = extractProductId(base) ?? extractProductId(obj);
 
-        // Require at least one strong product signal (price, mrp, or id)
-        return price !== null || mrp !== null || productId !== null;
+        // IMPORTANT: Product *must* have a real price signal.
+        // Categories/collections often have an id + title but no price, and should not be treated as products.
+        return price !== null || mrp !== null;
     };
 
     const pushProduct = (obj) => {
@@ -323,7 +432,9 @@ const extractProductsFromPayloads = (payloads = []) => {
     for (const raw of rawProducts) {
         const n = normalizeProduct(raw);
         if (!n.product_name) continue;
-        if (n.price === null && n.original_price === null && !n.product_url) continue;
+        // Only keep items with a real price signal.
+        // This prevents category widgets from leaking into the dataset.
+        if (n.price === null && n.original_price === null) continue;
         const key = `${n.product_name}|${n.price ?? ''}|${n.original_price ?? ''}|${n.product_image ?? ''}|${n.product_url ?? ''}`;
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
@@ -337,6 +448,7 @@ async function main() {
         const input = (await Actor.getInput()) || {};
         const {
             search_query = '',
+            search_url = '',
             results_wanted: RESULTS_WANTED_RAW = 20,
             proxyConfiguration: proxyConfig,
             latitude,
@@ -348,15 +460,49 @@ async function main() {
             ? +RESULTS_WANTED_RAW
             : 0; // 0 means unlimited
 
-        const searchQueryInput = typeof search_query === 'string' ? search_query.trim() : '';
+        const searchUrlInput = typeof search_url === 'string' ? search_url.trim() : '';
 
-        if (!searchQueryInput) {
-            throw new Error('search_query is required and cannot be empty');
+        let searchQueryInput = typeof search_query === 'string' ? search_query.trim() : '';
+        let searchUrl;
+        let urlLatitude = null;
+        let urlLongitude = null;
+
+        if (searchUrlInput) {
+            let u;
+            try {
+                u = new URL(searchUrlInput, 'https://blinkit.com');
+            } catch {
+                throw new Error('search_url must be a valid URL');
+            }
+
+            if (!/(^|\.)blinkit\.com$/i.test(u.hostname)) {
+                throw new Error('search_url must be a blinkit.com URL');
+            }
+
+            const q = u.searchParams.get('q');
+            if (q && q.trim()) searchQueryInput = q.trim();
+
+            const latParam = u.searchParams.get('lat') ?? u.searchParams.get('latitude');
+            const lngParam = u.searchParams.get('lng') ?? u.searchParams.get('longitude');
+            if (latParam !== null) {
+                const parsed = Number.parseFloat(String(latParam));
+                if (Number.isFinite(parsed)) urlLatitude = parsed;
+            }
+            if (lngParam !== null) {
+                const parsed = Number.parseFloat(String(lngParam));
+                if (Number.isFinite(parsed)) urlLongitude = parsed;
+            }
+
+            searchUrl = u.toString();
+        } else {
+            if (!searchQueryInput) {
+                throw new Error('Either search_query or search_url is required and cannot be empty');
+            }
+            searchUrl = `https://blinkit.com/s/?q=${encodeURIComponent(searchQueryInput)}`;
         }
 
-        const searchUrl = `https://blinkit.com/s/?q=${encodeURIComponent(searchQueryInput)}`;
-        const geoLatitude = Number.isFinite(+latitude) ? Number(latitude) : null;
-        const geoLongitude = Number.isFinite(+longitude) ? Number(longitude) : null;
+        const geoLatitude = urlLatitude ?? (Number.isFinite(+latitude) ? Number(latitude) : null);
+        const geoLongitude = urlLongitude ?? (Number.isFinite(+longitude) ? Number(longitude) : null);
 
         log.info(`Starting Blinkit scraper for query: "${searchQueryInput}"`);
         log.info(`Target results: ${RESULTS_WANTED === 0 ? 'unlimited' : RESULTS_WANTED}`);
@@ -367,59 +513,6 @@ async function main() {
             useApifyProxy: true,
             apifyProxyGroups: ['RESIDENTIAL'],
         });
-
-        // Product selectors for Blinkit (multiple fallback options)
-        const SELECTORS = {
-            productContainer: [
-                'div[class*="Product__"]',
-                '[data-testid="product"]',
-                'article[class*="product"]',
-                'div[class*="ProductCard"]'
-            ],
-            productName: [
-                'div[class*="Product__ProductName"]',
-                '[data-testid="product-name"]',
-                'h3[class*="product-name"]',
-                'div[class*="ProductName"]'
-            ],
-            currentPrice: [
-                'div[class*="Product__UpdatedPrice"]',
-                '[data-testid="product-price"]',
-                'span[class*="price"]',
-                'div[class*="Price"]'
-            ],
-            originalPrice: [
-                'div[class*="Product__MrpText"]',
-                '[data-testid="original-price"]',
-                'span[class*="mrp"]',
-                'del[class*="price"]'
-            ],
-            discount: [
-                'div[class*="Product__UpdatedDiscountPercent"]',
-                '[data-testid="discount"]',
-                'span[class*="discount"]'
-            ],
-            productImage: [
-                'img[class*="Product__ProductImage"]',
-                '[data-testid="product-image"]',
-                'img[class*="product-img"]'
-            ],
-            addButton: [
-                'div[class*="Product__AddToCart"]',
-                'button[class*="add-to-cart"]',
-                '[data-testid="add-button"]'
-            ],
-            outOfStock: [
-                'div[class*="OutOfStock"]',
-                '[data-testid="out-of-stock"]',
-                'span[class*="out-of-stock"]'
-            ],
-            deliveryTime: [
-                'div[class*="eta-"]',
-                '[data-testid="delivery-time"]',
-                'span[class*="delivery"]'
-            ],
-        };
 
         let totalScraped = 0;
         const seenProductKeys = new Set();
@@ -435,27 +528,84 @@ async function main() {
             return key || null;
         };
 
-        const countProductsOnPage = async (page) => {
-            for (const selector of SELECTORS.productContainer) {
-                try {
-                    const count = await page.locator(selector).count();
-                    if (count > 0) return count;
-                } catch {
-                    // ignore selector errors
-                }
-            }
-            return 0;
-        };
-
-        const getReduxProductCount = async (page) => {
+        const getReduxProducts = async (page) => {
             try {
-                return await page.evaluate(() => {
-                    const store = window.__reduxStore__?.getState?.();
-                    const snippets = store?.ui?.search?.searchProductBffData?.snippets || [];
-                    return snippets.filter(s => s?.widget_type === 'product_card_snippet_type_2' && s?.data?.name).length;
+                const reduxStoreData = await page.evaluate(() => {
+                    try {
+                        const state = window.__reduxStore__?.getState?.();
+                        if (state?.ui?.search?.searchProductBffData) return state.ui.search.searchProductBffData;
+                    } catch (e) {
+                        console.log('Redux store extraction failed:', e);
+                    }
+                    return null;
                 });
+
+                if (!reduxStoreData?.snippets) return [];
+
+                const snippets = reduxStoreData.snippets.filter((s) => {
+                    if (s?.widget_type !== 'product_card_snippet_type_2') return false;
+                    if (!s?.data?.name) return false;
+                    const name = s.data.name?.text || s.data.name;
+                    return typeof name === 'string' && name.trim().length > 0;
+                });
+
+                return snippets
+                    .map((snippet) => {
+                        const data = snippet.data || {};
+                        const tracking = snippet.tracking || {};
+                        const cartItem = data.atc_action?.add_to_cart?.cart_item || {};
+                        const impression = tracking.impression_map || {};
+
+                        const price = cartItem.price || impression.price || toNumber(data.price?.text) || null;
+                        const mrp = cartItem.mrp || impression.mrp || toNumber(data.mrp?.text) || null;
+                        const nameValue = data.name?.text ?? data.name ?? cartItem.product_name ?? impression.product_name ?? impression.name ?? null;
+                        const name = typeof nameValue === 'string' ? nameValue.trim() : null;
+                        const id = cartItem.product_id || impression.product_id || data.product_id || null;
+
+                        let discount = data.discount?.text || null;
+                        if (!discount && price && mrp && mrp > price) {
+                            const off = Math.round(((mrp - price) / mrp) * 100);
+                            if (off > 0) discount = `${off}% OFF`;
+                        }
+
+                        let productUrl = null;
+                        if (id) {
+                            const slug = name ? String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'product';
+                            productUrl = `https://blinkit.com/prn/${slug}/prid/${id}`;
+                        }
+
+                        const isSoldOut = data.is_sold_out || false;
+                        const inventory = cartItem.inventory ?? impression.inventory ?? 0;
+                        const availability = (!isSoldOut && inventory > 0) ? 'In Stock' : 'Out of Stock';
+                        const deliveryTime = data.eta_tag?.text || data.delivery_time?.text || null;
+
+                        const mergedRaw = {
+                            ...data,
+                            ...cartItem,
+                            ...impression,
+                            product_id: id,
+                        };
+
+                        const normalized = normalizeProduct(mergedRaw);
+                        return compactObject({
+                            ...normalized,
+                            product_name: normalized.product_name || name,
+                            price: normalized.price ?? price,
+                            original_price: normalized.original_price ?? mrp,
+                            product_image: normalized.product_image ?? (data.image?.url || cartItem.image_url || null),
+                            availability,
+                            product_url: normalized.product_url ?? productUrl,
+                            discount_percentage: normalized.discount_percentage ?? discount,
+                            delivery_time: normalized.delivery_time ?? deliveryTime,
+                            inventory: normalized.inventory ?? (Number.isFinite(inventory) ? inventory : null),
+                        });
+                    })
+                    .filter((p) => {
+                        if (typeof p.product_name !== 'string' || !p.product_name.trim() || p.product_name === '[object Object]') return false;
+                        return p.price !== null && p.price !== undefined;
+                    });
             } catch {
-                return 0;
+                return [];
             }
         };
 
@@ -480,7 +630,7 @@ async function main() {
                 useFingerprints: true,
                 fingerprintOptions: {
                     fingerprintGeneratorOptions: {
-                        browsers: ['chrome', 'firefox'],
+                            browsers: ['chrome'],
                         operatingSystems: ['windows', 'macos'],
                         devices: ['desktop'],
                     },
@@ -594,26 +744,47 @@ async function main() {
                             return true;
                         });
                         if (deduped.length === 0) return false;
-                        const remaining = RESULTS_WANTED > 0 ? RESULTS_WANTED - totalScraped : products.length;
-                        if (remaining <= 0) return true;
+                        const remaining = RESULTS_WANTED > 0 ? RESULTS_WANTED - totalScraped : deduped.length;
+                        if (remaining <= 0) return RESULTS_WANTED > 0;
+
                         const limited = RESULTS_WANTED > 0 ? deduped.slice(0, remaining) : deduped;
-                        const enriched = limited.map(p => ({
-                            ...p,
-                            search_query: searchQueryInput,
-                            url: request.url,
-                            scrapedAt: new Date().toISOString(),
-                        }));
+                        const enriched = limited
+                            .map((p) => compactObject({
+                                ...p,
+                                search_query: searchQueryInput,
+                                url: request.url,
+                                scrapedAt: new Date().toISOString(),
+                            }))
+                            .filter((p) => p.product_name);
+
+                        if (enriched.length === 0) return false;
                         await Dataset.pushData(enriched);
                         totalScraped += enriched.length;
                         log.info(`Extracted ${enriched.length} products from ${label}`);
-                        if (RESULTS_WANTED === 0) return true; // stop after a successful source when unlimited
-                        return totalScraped >= RESULTS_WANTED;
+                        return RESULTS_WANTED > 0 ? totalScraped >= RESULTS_WANTED : false;
+                    };
+
+                    const paginationCandidateParams = ['page', 'offset', 'from', 'start', 'cursor', 'skip'];
+                    let bestPagedApi = null;
+
+                    const scoreApiCandidate = (url, productsCount) => {
+                        let score = productsCount;
+                        try {
+                            const u = new URL(url);
+                            for (const key of paginationCandidateParams) {
+                                if (u.searchParams.has(key)) score += 50;
+                            }
+                            if (/search|listing|plp|collection|browse|items|widgets/i.test(u.pathname)) score += 10;
+                        } catch {
+                            // ignore
+                        }
+                        return score;
                     };
 
                     const responseListener = async (response) => {
                         const url = response.url();
                         const contentType = response.headers()['content-type'] || '';
-                        if (!contentType.includes('application/json')) return;
+                        if (!contentType.includes('application/json') && !contentType.includes('text/json')) return;
                         if (!/search|catalog|product|listing|plp|collection|browse|autocomplete|autosuggest|items|v\\d+/i.test(url)) {
                             return;
                         }
@@ -622,6 +793,15 @@ async function main() {
                             const json = await response.json();
                             responsePayloads.push(json);
                             responseUrls.add(url);
+
+                            // Track a strong candidate for direct pagination (if it yields many products)
+                            const products = extractProductsFromPayloads([json]);
+                            if (products.length >= 10) {
+                                const score = scoreApiCandidate(url, products.length);
+                                if (!bestPagedApi || score > bestPagedApi.score) {
+                                    bestPagedApi = { url, score, sampleCount: products.length };
+                                }
+                            }
                         } catch {
                             // Ignore non-JSON or unreadable responses
                         }
@@ -631,6 +811,7 @@ async function main() {
 
                     // Wait for page to load
                     await page.waitForLoadState('domcontentloaded');
+                    await page.waitForLoadState('networkidle').catch(() => { });
 
                     // Check for blocking
                     const title = await page.title();
@@ -648,87 +829,12 @@ async function main() {
                     // Wait for dynamic content with timeout
                     await page.waitForTimeout(3000);
 
-                    // PRIORITY 0: Try to extract from Redux store (live Blinkit state)
-                    log.info('Checking for Redux store...');
-                    const reduxStoreData = await page.evaluate(() => {
-                        try {
-                            if (window.__reduxStore__) {
-                                const state = window.__reduxStore__.getState();
-                                // Extract the search snippets which contain product data
-                                if (state.ui && state.ui.search && state.ui.search.searchProductBffData) {
-                                    return state.ui.search.searchProductBffData;
-                                }
-                            }
-                        } catch (e) {
-                            console.log('Redux store extraction failed:', e);
-                        }
-                        return null;
-                    });
-
-                    if (reduxStoreData && reduxStoreData.snippets) {
-                        // The snippets array contains product cards, ads, and other widgets
-                        // Filter to only include actual product snippets
-                        const snippets = reduxStoreData.snippets.filter(s => {
-                            // Only include product_card_snippet_type_2 (actual products)
-                            // Exclude ads_vertical_banner, category widgets, etc.
-                            if (s.widget_type !== 'product_card_snippet_type_2') return false;
-                            if (!s.data || !s.data.name) return false;
-                            // Ensure it has a valid name (not [object Object] or undefined)
-                            const name = s.data.name?.text || s.data.name;
-                            if (!name || typeof name !== 'string' || name.trim().length === 0) return false;
-                            return true;
-                        });
-                        const products = snippets.map(snippet => {
-                            const data = snippet.data || {};
-                            const tracking = snippet.tracking || {};
-                            const cartItem = data.atc_action?.add_to_cart?.cart_item || {};
-                            const impression = tracking.impression_map || {};
-
-                            // Extract values with fallbacks
-                            const price = cartItem.price || impression.price || toNumber(data.price?.text) || null;
-                            const mrp = cartItem.mrp || impression.mrp || toNumber(data.mrp?.text) || null;
-                            const name = data.name?.text || data.name || cartItem.product_name || null;
-                            const id = cartItem.product_id || impression.product_id || data.product_id || null;
-
-                            // Calculate discount if missing
-                            let discount = data.discount?.text || null;
-                            if (!discount && price && mrp && mrp > price) {
-                                const off = Math.round(((mrp - price) / mrp) * 100);
-                                if (off > 0) discount = `${off}% OFF`;
-                            }
-
-                            // Construct URL
-                            let productUrl = null;
-                            if (id) {
-                                // Construct a valid Blinkit web URL
-                                const slug = name ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'product';
-                                productUrl = `https://blinkit.com/prn/${slug}/prid/${id}`;
-                            }
-
-                            // Availability check
-                            const isSoldOut = data.is_sold_out || false;
-                            const inventory = cartItem.inventory ?? impression.inventory ?? 0;
-                            const availability = (!isSoldOut && inventory > 0) ? 'In Stock' : 'Out of Stock';
-
-                            // Delivery time from tag
-                            const deliveryTime = data.eta_tag?.text || data.delivery_time?.text || null;
-
-                            return {
-                                product_name: name,
-                                price: price,
-                                original_price: mrp,
-                                product_image: data.image?.url || cartItem.image_url || null,
-                                availability: availability,
-                                product_url: productUrl,
-                                discount_percentage: discount,
-                                delivery_time: deliveryTime
-                            };
-                        }).filter(p => p.product_name);
-
-                        if (products.length > 0) {
-                            const done = await pushResults(products, 'Redux Store');
-                            if (done) return;
-                        }
+                    // PRIORITY 0: Extract from Redux store (Blinkit client state)
+                    log.info('Checking Redux store (JSON state)...');
+                    const reduxProductsInitial = await getReduxProducts(page);
+                    if (reduxProductsInitial.length > 0) {
+                        const done = await pushResults(reduxProductsInitial, 'Redux Store');
+                        if (done) return;
                     }
 
                     // PRIORITY 1: Try to extract __NEXT_DATA__ (Next.js)
@@ -754,41 +860,51 @@ async function main() {
                         }
                     }
 
-                    // PRIORITY 2: Scroll to load all products
-                    log.info('Scrolling to load all products...');
+                    // PRIORITY 2: Scroll to trigger more JSON pagination requests (no DOM parsing)
+                    log.info('Scrolling to trigger more JSON pagination...');
                     let previousHeight = await page.evaluate(() => document.body.scrollHeight);
-                    let previousCount = await countProductsOnPage(page);
-                    let previousReduxCount = await getReduxProductCount(page);
+                    let previousReduxCount = reduxProductsInitial.length;
+                    let previousResponseCount = responseUrls.size;
                     let scrollAttempts = 0;
                     let stableRounds = 0;
                     const maxScrollAttempts = 40;
                     const maxStableRounds = 3;
 
                     while (scrollAttempts < maxScrollAttempts && stableRounds < maxStableRounds) {
-                        if (RESULTS_WANTED > 0 && previousCount >= RESULTS_WANTED) {
-                            log.info(`Reached target product count (${previousCount} >= ${RESULTS_WANTED})`);
-                            break;
-                        }
+                        if (RESULTS_WANTED > 0 && totalScraped >= RESULTS_WANTED) break;
 
                         await page.evaluate(() => {
                             window.scrollTo(0, document.body.scrollHeight);
                         });
                         await page.waitForTimeout(1200 + Math.random() * 1200);
 
-                        const currentHeight = await page.evaluate(() => document.body.scrollHeight);
-                        const currentCount = await countProductsOnPage(page);
-                        const currentReduxCount = await getReduxProductCount(page);
-
-                        const grew = currentHeight > previousHeight || currentCount > previousCount || currentReduxCount > previousReduxCount;
-                        if (!grew) {
-                            stableRounds += 1;
-                        } else {
-                            stableRounds = 0;
+                        const reduxProducts = await getReduxProducts(page);
+                        if (reduxProducts.length > 0) {
+                            const done = await pushResults(reduxProducts, 'Redux Store (scroll)');
+                            if (done) return;
                         }
 
+                        const networkProducts = extractProductsFromPayloads(responsePayloads);
+                        if (networkProducts.length > 0) {
+                            const done = await pushResults(networkProducts, 'network JSON');
+                            if (done) return;
+                        }
+
+                        const currentHeight = await page.evaluate(() => document.body.scrollHeight);
+                        const currentReduxCount = reduxProducts.length;
+                        const currentResponseCount = responseUrls.size;
+
+                        const grew =
+                            currentHeight > previousHeight ||
+                            currentReduxCount > previousReduxCount ||
+                            currentResponseCount > previousResponseCount;
+
+                        if (!grew) stableRounds += 1;
+                        else stableRounds = 0;
+
                         previousHeight = currentHeight;
-                        previousCount = currentCount;
                         previousReduxCount = currentReduxCount;
+                        previousResponseCount = currentResponseCount;
                         scrollAttempts++;
                     }
 
@@ -796,180 +912,99 @@ async function main() {
                         log.info('Reached end of page or no new products loaded');
                     }
 
-                    log.info('Extracting product data from HTML...');
-
-                    // PRIORITY 3: Re-check Redux store after scrolling
-                    const reduxAfterScroll = await page.evaluate(() => {
-                        try {
-                            if (window.__reduxStore__) {
-                                const state = window.__reduxStore__.getState();
-                                if (state.ui && state.ui.search && state.ui.search.searchProductBffData) {
-                                    return state.ui.search.searchProductBffData;
-                                }
-                            }
-                        } catch (e) {
-                            console.log('Redux store extraction failed:', e);
-                        }
-                        return null;
-                    });
-
-                    if (reduxAfterScroll && reduxAfterScroll.snippets) {
-                        const snippets = reduxAfterScroll.snippets.filter(s => {
-                            if (s.widget_type !== 'product_card_snippet_type_2') return false;
-                            if (!s.data || !s.data.name) return false;
-                            const name = s.data.name?.text || s.data.name;
-                            if (!name || typeof name !== 'string' || name.trim().length === 0) return false;
-                            return true;
-                        });
-
-                        const products = snippets.map(snippet => {
-                            const data = snippet.data || {};
-                            const tracking = snippet.tracking || {};
-                            const cartItem = data.atc_action?.add_to_cart?.cart_item || {};
-                            const impression = tracking.impression_map || {};
-
-                            const price = cartItem.price || impression.price || toNumber(data.price?.text) || null;
-                            const mrp = cartItem.mrp || impression.mrp || toNumber(data.mrp?.text) || null;
-                            const name = data.name?.text || data.name || cartItem.product_name || null;
-                            const id = cartItem.product_id || impression.product_id || data.product_id || null;
-
-                            let discount = data.discount?.text || null;
-                            if (!discount && price && mrp && mrp > price) {
-                                const off = Math.round(((mrp - price) / mrp) * 100);
-                                if (off > 0) discount = `${off}% OFF`;
-                            }
-
-                            let productUrl = null;
-                            if (id) {
-                                const slug = name ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'product';
-                                productUrl = `https://blinkit.com/prn/${slug}/prid/${id}`;
-                            }
-
-                            const isSoldOut = data.is_sold_out || false;
-                            const inventory = cartItem.inventory ?? impression.inventory ?? 0;
-                            const availability = (!isSoldOut && inventory > 0) ? 'In Stock' : 'Out of Stock';
-
-                            const deliveryTime = data.eta_tag?.text || data.delivery_time?.text || null;
-
-                            return {
-                                product_name: name,
-                                price: price,
-                                original_price: mrp,
-                                product_image: data.image?.url || cartItem.image_url || null,
-                                availability: availability,
-                                product_url: productUrl,
-                                discount_percentage: discount,
-                                delivery_time: deliveryTime
-                            };
-                        }).filter(p => p.product_name);
-
-                        if (products.length > 0) {
-                            const done = await pushResults(products, 'Redux Store (after scroll)');
-                            if (done) return;
-                        }
-                    }
-
-                    // PRIORITY 4: Try captured JSON responses
-                    const networkProducts = extractProductsFromPayloads(responsePayloads);
-                    if (networkProducts.length > 0) {
-                        const done = await pushResults(networkProducts, 'network JSON');
+                    // Final attempt: prefer JSON sources only
+                    const reduxFinal = await getReduxProducts(page);
+                    if (reduxFinal.length > 0) {
+                        const done = await pushResults(reduxFinal, 'Redux Store (final)');
                         if (done) return;
                     }
 
-                    // PRIORITY 3: Extract using browser context with fallback selectors
-                    const products = await page.evaluate(({ selectors, resultsWanted }) => {
-                        // Helper to try multiple selectors
-                        const findWithSelectors = (element, selectorArray) => {
-                            for (const selector of selectorArray) {
-                                const found = element.querySelector(selector);
-                                if (found) return found;
+                    const networkFinal = extractProductsFromPayloads(responsePayloads);
+                    if (networkFinal.length > 0) {
+                        const done = await pushResults(networkFinal, 'network JSON (final)');
+                        if (done) return;
+                    }
+
+                    // PRIORITY 3: If we saw a paginatable internal JSON endpoint, try fetching it directly
+                    // using the current browser session (avoids relying purely on lazy-load scrolling).
+                    if (RESULTS_WANTED > 0 && totalScraped < RESULTS_WANTED && bestPagedApi?.url) {
+                        log.info(`Attempting direct pagination via internal JSON endpoint (sample ${bestPagedApi.sampleCount} items): ${bestPagedApi.url}`);
+
+                        const fetchNext = async (baseUrl, iteration) => {
+                            const u = new URL(baseUrl);
+
+                            const detectStep = () => {
+                                const limitLike = u.searchParams.get('limit') ?? u.searchParams.get('size') ?? u.searchParams.get('count');
+                                const parsed = Number.parseInt(String(limitLike || ''), 10);
+                                return Number.isFinite(parsed) && parsed > 0 ? parsed : 24;
+                            };
+
+                            // Heuristics: try incrementing a known pagination param if present.
+                            const bumpParam = (key, delta) => {
+                                const current = Number.parseInt(u.searchParams.get(key) || '0', 10);
+                                const next = Number.isFinite(current) ? current + delta : delta;
+                                u.searchParams.set(key, String(next));
+                                return true;
+                            };
+
+                            if (u.searchParams.has('page')) bumpParam('page', 1);
+                            else if (u.searchParams.has('offset')) bumpParam('offset', detectStep());
+                            else if (u.searchParams.has('from')) bumpParam('from', detectStep());
+                            else if (u.searchParams.has('start')) bumpParam('start', detectStep());
+                            else if (u.searchParams.has('skip')) bumpParam('skip', detectStep());
+                            else {
+                                // If there is no obvious pagination param, we can't safely iterate.
+                                return null;
                             }
-                            return null;
+                            return u.toString();
                         };
 
-                        // Find all product containers
-                        let productElements = [];
-                        for (const containerSelector of selectors.productContainer) {
-                            productElements = Array.from(document.querySelectorAll(containerSelector));
-                            if (productElements.length > 0) {
-                                console.log(`Found ${productElements.length} products with selector: ${containerSelector}`);
+                        let lastAdded = totalScraped;
+                        for (let i = 0; i < 15 && totalScraped < RESULTS_WANTED; i++) {
+                            const nextUrl = await fetchNext(bestPagedApi.url, i + 1);
+                            if (!nextUrl) break;
+
+                            try {
+                                const apiRes = await page.request.fetch(nextUrl, {
+                                    headers: {
+                                        accept: 'application/json, text/plain, */*',
+                                        'app_client': 'web',
+                                    },
+                                    timeout: 60_000,
+                                });
+
+                                if (!apiRes.ok()) {
+                                    log.warning(`Direct pagination request failed: ${apiRes.status()} ${nextUrl}`);
+                                    break;
+                                }
+
+                                const json = await apiRes.json();
+                                const products = extractProductsFromPayloads([json]);
+                                if (products.length === 0) {
+                                    log.info('Direct pagination returned 0 products; stopping.');
+                                    break;
+                                }
+
+                                const done = await pushResults(products, `direct paged JSON (#${i + 1})`);
+                                if (done) return;
+
+                                if (totalScraped === lastAdded) {
+                                    log.info('Direct pagination did not add new products; stopping.');
+                                    break;
+                                }
+                                lastAdded = totalScraped;
+                            } catch (e) {
+                                log.warning('Direct pagination attempt failed; stopping.');
                                 break;
                             }
                         }
-
-                        if (productElements.length === 0) {
-                            console.log('No products found with any selector');
-                            return [];
-                        }
-
-                        const limit = resultsWanted > 0 ? resultsWanted : productElements.length;
-
-                        return productElements.slice(0, limit).map(el => {
-                            // Extract product name
-                            const nameEl = findWithSelectors(el, selectors.productName);
-                            const productName = nameEl ? nameEl.textContent.trim() : null;
-
-                            // Extract current price
-                            const priceEl = findWithSelectors(el, selectors.currentPrice);
-                            let currentPrice = null;
-                            if (priceEl) {
-                                const priceText = priceEl.textContent.trim().replace(/[₹,\s]/g, '');
-                                currentPrice = parseFloat(priceText) || null;
-                            }
-
-                            // Extract original price (if discounted)
-                            const originalPriceEl = findWithSelectors(el, selectors.originalPrice);
-                            let originalPrice = null;
-                            if (originalPriceEl) {
-                                const originalPriceText = originalPriceEl.textContent.trim().replace(/[₹,\s]/g, '');
-                                originalPrice = parseFloat(originalPriceText) || null;
-                            }
-
-                            // Extract discount percentage
-                            const discountEl = findWithSelectors(el, selectors.discount);
-                            const discountPercentage = discountEl ? discountEl.textContent.trim() : null;
-
-                            // Extract product image
-                            const imageEl = findWithSelectors(el, selectors.productImage);
-                            const productImage = imageEl ? (imageEl.src || imageEl.getAttribute('src')) : null;
-
-                            // Check availability
-                            const outOfStockEl = findWithSelectors(el, selectors.outOfStock);
-                            const addButtonEl = findWithSelectors(el, selectors.addButton);
-                            const availability = outOfStockEl ? 'Out of Stock' :
-                                (addButtonEl ? 'In Stock' : 'Unknown');
-
-                            // Extract delivery time (global or per-product)
-                            const deliveryTimeEl = findWithSelectors(el, selectors.deliveryTime) ||
-                                findWithSelectors(document, selectors.deliveryTime);
-                            const deliveryTime = deliveryTimeEl ? deliveryTimeEl.textContent.trim() : null;
-
-                            return {
-                                product_name: productName,
-                                price: currentPrice,
-                                original_price: originalPrice,
-                                discount_percentage: discountPercentage,
-                                product_image: productImage,
-                                availability: availability,
-                                delivery_time: deliveryTime,
-                                scrapedAt: new Date().toISOString()
-                            };
-                        }).filter(p => p.product_name && p.product_name.length > 0); // Filter out invalid entries
-                    }, { selectors: SELECTORS, resultsWanted: RESULTS_WANTED });
-
-                    // Validate extraction
-                    if (products.length === 0) {
-                        log.warning('No products extracted! Saving debug HTML for inspection...');
-                        log.warning('If results are empty, Blinkit may require a delivery location. Consider enabling setGeolocation with latitude/longitude.');
-                        await Actor.setValue('debug-no-products', await page.content(), { contentType: 'text/html' });
-                        await Actor.setValue('debug-response-urls', JSON.stringify(Array.from(responseUrls), null, 2), { contentType: 'application/json' });
-                        return;
                     }
 
-                    // Add search query and URL to each product
-                    const enrichedProducts = products;
-                    const done = await pushResults(enrichedProducts, 'DOM HTML');
-                    if (done) return;
+                    log.warning('No products extracted from JSON sources. Saving debug artifacts...');
+                    log.warning('If results are empty, Blinkit may require a delivery location. Consider enabling setGeolocation with latitude/longitude.');
+                    await Actor.setValue('debug-no-products', await page.content(), { contentType: 'text/html' });
+                    await Actor.setValue('debug-response-urls', JSON.stringify(Array.from(responseUrls), null, 2), { contentType: 'application/json' });
+                    return;
 
                 } catch (error) {
                     log.exception(error, `Error processing ${request.url}`);

@@ -1,14 +1,14 @@
-# Blinkit Price Scraper
+# Blinkit Product Price Scraper
 
-Extract product prices, names, discounts, and availability from Blinkit grocery delivery service. Perfect for price tracking, market research, and monitoring product availability across different locations.
+Extract product pricing and availability data from Blinkit search results. Collect product names, current price, discounts, images, and IDs in a structured dataset—ideal for tracking price changes, building dashboards, and running competitive research.
 
 ## Features
 
-- **Comprehensive Product Data** — Extract product names, prices, discounts, images, and availability status
-- **Real-Time Pricing** — Track current prices, original prices, and discount percentages
-- **Search-Based Scraping** — Search for any product category (milk, vegetables, snacks, etc.)
-- **Production-Ready** — Uses Playwright with stealth features for reliable data extraction
-- **Structured Output** — Clean, organized product data ready for analysis and price comparison
+- **Search-driven collection** — Fetch products for any keyword (e.g., milk, snacks, paneer)
+- **Rich product details** — Get prices, discounts, images, availability, and identifiers
+- **Location-aware results** — Collect data for a delivery area by setting a location
+- **Deduplicated dataset** — Reduces repeats while collecting results across multiple loads
+- **Analysis-ready output** — Clean JSON output suitable for spreadsheets and BI tools
 
 ## Use Cases
 
@@ -43,33 +43,32 @@ Gather pricing data for consumer behavior studies and shopping trend analysis.
 
 ---
 
-## Data Extraction Methods
-The scraper uses a multi-layered approach to ensure high data quality and reliability:
-
-1. **Preloaded State Extraction** — Instantly captures data from `window.grofers.PRELOADED_STATE` before the page fully renders.
-2. **Direct API Capture** — Intercepts JSON responses from Blinkit's internal search APIs.
-3. **Next.js Data** — Extracts from `__NEXT_DATA__` script tags if present.
-4. **Smart DOM Parsing** — As a fallback, uses Playwright to parse the rendered HTML with redundant selectors.
-
-This hybrid approach ensures high speed and resilience against UI changes.
-
----
 ## Output Data
 Each product in the dataset contains:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `product_name` | String | Name of the product |
+| `product_id` | String/Number | Product identifier (when available) |
+| `sku_id` | String/Number | SKU / variant identifier (when available) |
+| `brand` | String | Brand name (when available) |
+| `quantity` | String/Number | Quantity (when available) |
+| `unit` | String | Unit / size label (when available) |
 | `price` | Number | Current price in INR (₹) |
-| `original_price` | Number | Original price before discount (if applicable) |
-| `discount_percentage` | String | Discount percentage (e.g., "8% OFF") |
+| `original_price` | Number | Original price before discount (when available) |
+| `discount_percentage` | String | Discount label (e.g., "14% OFF") |
+| `rating` | Number | Rating value (when available) |
+| `ratings_count` | Number | Ratings / reviews count (when available) |
+| `inventory` | Number | Inventory/stock count signal (when available) |
 | `product_image` | String | URL of the product image |
 | `availability` | String | Stock status (In Stock, Out of Stock, Unknown) |
-| `delivery_time` | String | Estimated delivery time (e.g., "13 MINS") |
+| `delivery_time` | String | Estimated delivery time (when available) |
 | `product_url` | String | Product page URL (when available) |
 | `search_query` | String | Search keyword used |
 | `url` | String | Search URL |
 | `scrapedAt` | String | Timestamp when data was scraped |
+
+Note: Optional fields are omitted from the output when they are not available.
 
 ---
 
@@ -116,6 +115,18 @@ Note: If `search_url` includes `lat`/`lng` (or `latitude`/`longitude`) query par
 }
 ```
 
+### Larger Collection
+
+```json
+{
+    "search_query": "milk",
+    "results_wanted": 200,
+    "setGeolocation": true,
+    "latitude": 28.6139,
+    "longitude": 77.209
+}
+```
+
 ### Custom Proxy Configuration
 
 ```json
@@ -135,16 +146,21 @@ Note: If `search_url` includes `lat`/`lng` (or `latitude`/`longitude`) query par
 
 ```json
 {
-    "product_name": "Amul Taaza Toned Milk 500 ml",
-    "price": 29,
-    "original_price": null,
-    "discount_percentage": null,
-    "product_image": "https://cdn.grofers.com/cdn-cgi/image/f=auto,fit=scale-down,q=70,metadata=none,w=900/da/cms-assets/cms/product/5734b087-3ad9-485f-bbe2-52079cd9e35d.png",
+    "product_name": "Country Delight Buffalo Fresh Milk",
+    "product_id": 637879,
+    "brand": "Country Delight",
+    "quantity": 1,
+    "unit": "450 ml",
+    "price": 51,
+    "original_price": 59,
+    "discount_percentage": "14% OFF",
+    "inventory": 1,
     "availability": "In Stock",
-    "delivery_time": "13 MINS",
+    "product_image": "https://cdn.grofers.com/da/cms-assets/cms/product/6e7eba87-a136-409a-9aab-7022ca4051be.png",
+    "product_url": "https://blinkit.com/prn/country-delight-buffalo-fresh-milk/prid/637879",
     "search_query": "milk",
     "url": "https://blinkit.com/s/?q=milk",
-    "scrapedAt": "2026-01-27T10:30:00.000Z"
+    "scrapedAt": "2026-02-17T07:11:34.570Z"
 }
 ```
 

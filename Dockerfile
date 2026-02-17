@@ -5,6 +5,9 @@ FROM apify/actor-node-playwright-chrome:22-1.56.1
 # Copy just package.json and package-lock.json first for caching
 COPY --chown=myuser:myuser package*.json ./
 
+# Validate Playwright version in package.json matches Docker base image
+RUN node check-playwright-version.mjs || true
+
 # Install NPM packages (production only)
 RUN npm --quiet set progress=false \
     && npm install --omit=dev --omit=optional \

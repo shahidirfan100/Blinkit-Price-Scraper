@@ -7,9 +7,17 @@
       "transformation": {
         "fields": [
           "product_name",
+          "product_id",
+          "sku_id",
+          "brand",
+          "quantity",
+          "unit",
           "price",
           "original_price",
           "discount_percentage",
+          "rating",
+          "ratings_count",
+          "inventory",
           "product_image",
           "availability",
           "delivery_time",
@@ -26,6 +34,26 @@
             "label": "Product Name",
             "format": "text"
           },
+          "product_id": {
+            "label": "Product ID",
+            "format": "text"
+          },
+          "sku_id": {
+            "label": "SKU / Variant ID",
+            "format": "text"
+          },
+          "brand": {
+            "label": "Brand",
+            "format": "text"
+          },
+          "quantity": {
+            "label": "Quantity",
+            "format": "text"
+          },
+          "unit": {
+            "label": "Unit",
+            "format": "text"
+          },
           "price": {
             "label": "Current Price (₹)",
             "format": "number"
@@ -37,6 +65,18 @@
           "discount_percentage": {
             "label": "Discount %",
             "format": "text"
+          },
+          "rating": {
+            "label": "Rating",
+            "format": "number"
+          },
+          "ratings_count": {
+            "label": "Ratings Count",
+            "format": "number"
+          },
+          "inventory": {
+            "label": "Inventory",
+            "format": "number"
           },
           "product_image": {
             "label": "Product Image",

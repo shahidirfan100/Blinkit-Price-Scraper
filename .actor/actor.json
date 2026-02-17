@@ -1,9 +1,9 @@
 {
   "actorSpecification": 1,
   "name": "blinkit-price-scraper",
-  "version": "1.0.0",
+  "version": "1.0",
   "meta": {
-    "generatedBy": "GPT-5"
+    "generatedBy": "GPT-5.3-Codex"
   },
   "buildTag": "latest",
   "dockerfile": "../Dockerfile",
